@@ -1,75 +1,3 @@
-<!--
-================================================================================
-HOOK CONTRACT FOR MISSION CONTROL UI
-================================================================================
-This template exposes the DOM elements, attributes, and CSS hooks required by 
-the controller logic (bmc-4).
-
-IDS USED BY CONTROLLER:
-  #ring         : Arc reactor conic-gradient ring container (percentage-driven)
-  #ringpct      : Text readout in the center of the ring showing completion %
-  #chips        : Container for status filtering chips
-  #c-all        : Filter chip for ALL issues
-  #c-ready      : Filter chip for READY issues
-  #c-prog       : Filter chip for IN_PROGRESS issues
-  #c-blocked    : Filter chip for BLOCKED issues
-  #c-done       : Filter chip for DONE issues
-  #c-deferred   : Filter chip for DEFERRED issues
-  #toolbar      : Main navigation/control bar
-  #search       : Text input for search filtering
-  #refresh      : Button to trigger manual refresh
-  #auto         : Checkbox toggle for auto-sync/refresh
-  #src          : Container for data source metadata
-  #srctxt       : Text node displaying active source path
-  #updtxt       : Text node displaying last update time/status
-  #announcebutton : Button to manually speak a status summary
-  #announcetoggle : Button/toggle for automatic voice announcements
-  #soundtoggle  : Button/toggle for completion sound enablement
-  #waves        : Main grid/container where dynamic waves are injected
-  #foot         : Footer container
-  #toast        : Toast notification overlay
-  #themetoggle  : Button/toggle for theme switching
-
-DATA ATTRIBUTES:
-  .chip[data-f]  : Status filter buttons (data-f matches status string)
-  .id[data-id]   : Element displaying task ID, holding data-id attribute
-
-CARD CLASSES:
-  .card          : Task card root container
-  .card.ready, .card.inprogress, .card.blocked, .card.done, .card.deferred : Status styling
-  .stpill        : Status telemetry pill (stpill-ready, stpill-inprogress, etc.)
-  .think         : Priority indicator container (high, medhi, med, low)
-  .tag.trk       : Track classification badge (e.g., CORE, UI)
-  .tag.file      : Target/impacted file badge
-  .warn          : Warning banner/indicator for drift or ledger verification fail
-  .blk           : Blocker indicator containing dependency details
-  .who           : Assignee / owner element
-
-I18N KEYS:
-  title                 : Title of the panel (default: "MISSION CONTROL")
-  search_placeholder    : Placeholder for the search input (default: "Search issues...")
-  refresh               : Manual refresh button text (default: "REFRESH")
-  auto                  : Auto-refresh label text (default: "LIVE")
-  sound                 : Completion sound toggle text (default: "SOUND")
-  announce_button       : Manual announcement button text (default: "REPORT")
-  announce_toggle       : Automatic voice toggle text (default: "VOICE")
-  theme                 : Theme toggle button text (default: "THEME")
-  filter_all            : Chip text for All (default: "ALL")
-  filter_ready          : Chip text for Ready (default: "READY")
-  filter_inprogress     : Chip text for In Progress (default: "IN PROGRESS")
-  filter_blocked        : Chip text for Blocked (default: "BLOCKED")
-  filter_done           : Chip text for Done (default: "DONE")
-  filter_deferred       : Chip text for Deferred (default: "DEFERRED")
-  card_assignee         : Card assignee label (default: "ASSIGNEE:")
-  card_blocked_by       : Card blocker label (default: "BLOCKED BY:")
-  footer_text           : Footer documentation/acknowledgments
-
-THEMING & ACCENTS:
-  The layout supports custom CSS properties. The accent color can be overridden
-  dynamically at runtime via BMC_CONFIG.accent by setting the single CSS variable:
-  --bmc-accent
-================================================================================
--->
 <!doctype html>
 <html lang="en">
   <head>
@@ -81,15 +9,73 @@ THEMING & ACCENTS:
     </style>
   </head>
   <body>
-    <header id="hud-header" class="hud-boot">
-      <div id="ring-container">
-        <div id="ring" style="--ring-percent: 70;">
-          <div class="ring-ticks"></div>
-          <div class="ring-glow-ring"></div>
-          <div id="ringpct">70%</div>
+    <div class="boot-overlay" aria-hidden="true">
+      <div class="boot-scan"></div>
+      <div class="boot-panel">
+        <div class="boot-title">
+          <span data-i18n="boot_title">J.A.R.V.I.S. ONLINE</span>
+          <span class="boot-caret"></span>
+        </div>
+        <div class="boot-subtitle" data-i18n="boot_subtitle">INITIALIZING MISSION CONTROL HUD</div>
+        <div class="boot-bar" role="presentation">
+          <div class="boot-bar-fill"></div>
         </div>
       </div>
-      <div id="chips">
+    </div>
+
+    <div class="ambient-grid" aria-hidden="true"></div>
+    <div class="scan-sweep" aria-hidden="true"></div>
+    <div class="particles" aria-hidden="true">
+      <span class="particle p1"></span>
+      <span class="particle p2"></span>
+      <span class="particle p3"></span>
+      <span class="particle p4"></span>
+      <span class="particle p5"></span>
+      <span class="particle p6"></span>
+      <span class="particle p7"></span>
+      <span class="particle p8"></span>
+      <span class="particle p9"></span>
+      <span class="particle p10"></span>
+      <span class="particle p11"></span>
+      <span class="particle p12"></span>
+      <span class="particle p13"></span>
+      <span class="particle p14"></span>
+      <span class="particle p15"></span>
+      <span class="particle p16"></span>
+      <span class="particle p17"></span>
+      <span class="particle p18"></span>
+      <span class="particle p19"></span>
+      <span class="particle p20"></span>
+      <span class="particle p21"></span>
+      <span class="particle p22"></span>
+      <span class="particle p23"></span>
+      <span class="particle p24"></span>
+      <span class="particle p25"></span>
+      <span class="particle p26"></span>
+    </div>
+
+    <header id="hud-header" class="hud-boot">
+      <div class="header-primary">
+        <div id="ring-container">
+          <div id="ring" style="--ring-percent: 70;">
+            <div class="ring-ticks ring-ticks-outer"></div>
+            <div class="ring-ticks ring-ticks-inner"></div>
+            <svg class="ring-svg" viewBox="0 0 100 100" aria-hidden="true">
+              <circle class="ring-track" cx="50" cy="50" r="42"></circle>
+              <circle class="ring-progress" cx="50" cy="50" r="42"></circle>
+            </svg>
+            <div class="ring-core"></div>
+            <div id="ringpct">70%</div>
+          </div>
+        </div>
+
+        <div class="header-copy">
+          <h1 class="hud-title" data-i18n="header_title">JARVIS MISSION CONTROL</h1>
+          <p class="hud-subtitle" data-i18n="header_subtitle">W1 • BD-MISSION-CONTROL V1</p>
+        </div>
+      </div>
+
+      <div id="chips" aria-label="Status filters">
         <button class="chip active" id="c-all" data-f="all" data-i18n="filter_all">ALL</button>
         <button class="chip" id="c-ready" data-f="ready" data-i18n="filter_ready">READY</button>
         <button class="chip" id="c-prog" data-f="inprogress" data-i18n="filter_inprogress">IN PROGRESS</button>
@@ -99,19 +85,57 @@ THEMING & ACCENTS:
       </div>
     </header>
 
+    <section class="ticker-wrap hud-boot" aria-label="Telemetry ticker">
+      <span class="ticker-label" data-i18n="ticker_label">TELEMETRY</span>
+      <div class="ticker-window">
+        <div class="ticker-track">
+          <div class="ticker-group">
+            <span class="ticker-item" data-i18n="ticker_1">TELEMETRY LINK STABLE</span>
+            <span class="ticker-sep">•</span>
+            <span class="ticker-item" data-i18n="ticker_2">SCANNING WAVE W1 FOR DRIFT</span>
+            <span class="ticker-sep">•</span>
+            <span class="ticker-item" data-i18n="ticker_3">AGENT CLAUDE-FABLE ACTIVE ON BMC-10</span>
+            <span class="ticker-sep">•</span>
+            <span class="ticker-item" data-i18n="ticker_4">NO UNRESOLVED BLOCKERS OUTSIDE BMC-13</span>
+            <span class="ticker-sep">•</span>
+            <span class="ticker-item" data-i18n="ticker_5">VERIFICATION LEDGER: 11 PASS / 2 PENDING</span>
+            <span class="ticker-sep">•</span>
+            <span class="ticker-item" data-i18n="ticker_6">ARC REACTOR OUTPUT NOMINAL</span>
+            <span class="ticker-sep">•</span>
+          </div>
+          <div class="ticker-group" aria-hidden="true">
+            <span class="ticker-item" data-i18n="ticker_1">TELEMETRY LINK STABLE</span>
+            <span class="ticker-sep">•</span>
+            <span class="ticker-item" data-i18n="ticker_2">SCANNING WAVE W1 FOR DRIFT</span>
+            <span class="ticker-sep">•</span>
+            <span class="ticker-item" data-i18n="ticker_3">AGENT CLAUDE-FABLE ACTIVE ON BMC-10</span>
+            <span class="ticker-sep">•</span>
+            <span class="ticker-item" data-i18n="ticker_4">NO UNRESOLVED BLOCKERS OUTSIDE BMC-13</span>
+            <span class="ticker-sep">•</span>
+            <span class="ticker-item" data-i18n="ticker_5">VERIFICATION LEDGER: 11 PASS / 2 PENDING</span>
+            <span class="ticker-sep">•</span>
+            <span class="ticker-item" data-i18n="ticker_6">ARC REACTOR OUTPUT NOMINAL</span>
+            <span class="ticker-sep">•</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <main class="hud-boot">
       <nav id="toolbar" aria-label="Mission controls">
         <div class="toolbar-left">
           <input type="text" id="search" placeholder="Search issues..." data-i18n="search_placeholder">
           <button id="refresh" class="hud-btn" data-i18n="refresh">REFRESH</button>
-          <label class="auto-toggle-container">
+          <label class="toggle-inline">
             <input type="checkbox" id="auto">
-            <span class="auto-label" data-i18n="auto">LIVE</span>
+            <span class="toggle-label" data-i18n="auto">LIVE</span>
           </label>
         </div>
+
         <div class="toolbar-right">
-          <div id="src">
-            <span id="srctxt">.beads/issues.jsonl</span>
+          <div id="src" class="source-badge">
+            <span class="source-label" data-i18n="source">SOURCE</span>
+            <span id="srctxt">DEMO</span>
           </div>
           <span id="updtxt">Last sync: never</span>
           <button id="announcebutton" class="hud-btn hud-btn-mini" data-i18n="announce_button" title="Speak status report">REPORT</button>
@@ -121,173 +145,44 @@ THEMING & ACCENTS:
         </div>
       </nav>
 
-      <section id="waves" aria-label="Wave overview">
-        <div class="wave-container">
-          <div class="wave-header">
-            <span class="wave-badge">W1</span>
-            <span class="wave-title">DEMO WAVE: SYSTEM TELEMETRY</span>
-          </div>
-          <div class="wave-grid">
-            <!-- READY CARD -->
-            <div class="card ready">
-              <div class="card-header">
-                <span class="id" data-id="bmc-1">bmc-1</span>
-                <span class="stpill stpill-ready" data-i18n="filter_ready">READY</span>
-                <span class="think med">med</span>
-              </div>
-              <div class="card-body">
-                <h3 class="card-title">Initialize HUD Components</h3>
-                <p class="card-desc">Scan target directories and establish active webview socket connections.</p>
-              </div>
-              <div class="card-footer">
-                <div class="who">
-                  <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
-                  <span class="value">j.jarvis</span>
-                </div>
-                <div class="tags">
-                  <span class="tag trk">UI</span>
-                  <span class="tag file">src/panel.js</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- IN_PROGRESS CARD -->
-            <div class="card inprogress">
-              <div class="card-header">
-                <span class="id" data-id="bmc-2">bmc-2</span>
-                <span class="stpill stpill-inprogress" data-i18n="filter_inprogress">IN PROGRESS</span>
-                <span class="think high">high</span>
-              </div>
-              <div class="card-body">
-                <h3 class="card-title">Core Engine Compilation</h3>
-                <p class="card-desc">Parse active Dolt issues ledger and assemble data graph overlays.</p>
-              </div>
-              <div class="card-footer">
-                <div class="who">
-                  <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
-                  <span class="value">t.stark</span>
-                </div>
-                <div class="tags">
-                  <span class="tag trk">CORE</span>
-                  <span class="tag file">src/engine.mjs</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- BLOCKED CARD -->
-            <div class="card blocked">
-              <div class="card-header">
-                <span class="id" data-id="bmc-3">bmc-3</span>
-                <span class="stpill stpill-blocked" data-i18n="filter_blocked">BLOCKED</span>
-                <span class="think medhi">medhi</span>
-              </div>
-              <div class="card-body">
-                <h3 class="card-title">Arc Reactor Calibration</h3>
-                <p class="card-desc">Optimize power distribution across grid sectors.</p>
-              </div>
-              <div class="blk">
-                <span data-i18n="card_blocked_by">BLOCKED BY:</span> bmc-2
-              </div>
-              <div class="card-footer">
-                <div class="who">
-                  <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
-                  <span class="value">agy</span>
-                </div>
-                <div class="tags">
-                  <span class="tag trk">UI</span>
-                  <span class="tag file">src/panel.css</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- DONE CARD -->
-            <div class="card done">
-              <div class="card-header">
-                <span class="id" data-id="bmc-0">bmc-0</span>
-                <span class="stpill stpill-done" data-i18n="filter_done">DONE</span>
-                <span class="think low">low</span>
-              </div>
-              <div class="card-body">
-                <h3 class="card-title">Protocol Handshake</h3>
-                <p class="card-desc">Establish secure agent channel with client orchestrator.</p>
-              </div>
-              <div class="card-footer">
-                <div class="who">
-                  <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
-                  <span class="value">system</span>
-                </div>
-                <div class="tags">
-                  <span class="tag trk">NET</span>
-                  <span class="tag file">package.json</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- DEFERRED CARD -->
-            <div class="card deferred">
-              <div class="card-header">
-                <span class="id" data-id="bmc-4">bmc-4</span>
-                <span class="stpill stpill-deferred" data-i18n="filter_deferred">DEFERRED</span>
-                <span class="think low">low</span>
-              </div>
-              <div class="card-body">
-                <h3 class="card-title">Autonomous Repair Protocol</h3>
-                <p class="card-desc">Deploy nanite repair swarms to minor hull breaches.</p>
-              </div>
-              <div class="card-footer">
-                <div class="who">
-                  <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
-                  <span class="value">unassigned</span>
-                </div>
-                <div class="tags">
-                  <span class="tag trk">AUTO</span>
-                  <span class="tag file">src/repair.sh</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <section id="waves" aria-label="Wave overview"></section>
     </main>
 
     <footer id="foot" class="hud-boot">
-      <span data-i18n="footer_text">MISSION CONTROL HUD v{{VERSION}} &bull; TELEMETRY ENGINE SECURE</span>
+      <span data-i18n="footer_text">MISSION CONTROL HUD v{{VERSION}} • TELEMETRY ENGINE SECURE</span>
     </footer>
 
-    <div id="toast" class="hud-toast" style="display: none;">
-      <span class="toast-icon">⚡</span>
-      <span class="toast-message">Telemetry connection established.</span>
+    <div id="toast" style="display: none;">
+      <span class="toast-icon" aria-hidden="true">⚡</span>
+      <span class="toast-message" data-i18n="toast_message">Telemetry connection established.</span>
     </div>
 
-    <!-- Parametric Card Template for dynamic controller compilation -->
-    <template id="card-template">
-      <div class="card {state-class}">
+    <template id="card-tpl">
+      <article class="card">
+        <span class="corner corner-tl" aria-hidden="true"></span>
+        <span class="corner corner-br" aria-hidden="true"></span>
         <div class="card-header">
-          <span class="id" data-id="{id-value}">{id-value}</span>
-          <span class="stpill stpill-{state-class}">{state-label}</span>
-          <span class="think {think-class}">{think-label}</span>
+          <span class="id" data-id=""></span>
+          <span class="stpill" data-i18n="filter_ready">READY</span>
+          <span class="think low">low</span>
         </div>
         <div class="card-body">
-          <h3 class="card-title">{title-value}</h3>
-          <p class="card-desc">{desc-value}</p>
+          <h3 class="card-title"></h3>
+          <p class="card-desc"></p>
         </div>
-        <div class="card-blockers">
-          {blocker-content}
-        </div>
+        <div class="card-blockers"></div>
         <div class="card-footer">
           <div class="who">
             <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
-            <span class="value">{assignee-value}</span>
+            <span class="value"></span>
           </div>
           <div class="tags">
-            <span class="tag trk">{track-value}</span>
-            <span class="tag file">{file-value}</span>
+            <span class="tag trk"></span>
+            <span class="tag file"></span>
           </div>
         </div>
-        <div class="card-warnings">
-          {warning-content}
-        </div>
-      </div>
+        <div class="card-warnings"></div>
+      </article>
     </template>
 
     <script>
