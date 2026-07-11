@@ -93,7 +93,8 @@ sanitize_memory_value() {
     BEGIN {
       RS = "\0";
       ORS = "";
-      kw = "(api[_-]?key|bearer|token|password|secret|credential|private[_-]?key|aws_secret_access_key)";
+      # trailing suffix group catches SECRET_KEY / TOKEN_ID style compounds too
+      kw = "(api[_-]?key|bearer|token|password|secret|credential|private[_-]?key|aws_secret_access_key)([_-][A-Za-z0-9_-]*)?";
     }
     {
       text = $0;

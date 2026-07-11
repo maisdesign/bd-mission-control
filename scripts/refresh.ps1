@@ -112,7 +112,8 @@ function Read-Utf8Text {
 function Sanitize-MemoryValue {
   param([string]$Value)
   $text = [string]$Value
-  $kw = '(?:api[_-]?key|bearer|token|password|secret|credential|private[_-]?key|aws_secret_access_key)'
+  # trailing suffix group catches SECRET_KEY / TOKEN_ID style compounds too
+  $kw = '(?:api[_-]?key|bearer|token|password|secret|credential|private[_-]?key|aws_secret_access_key)(?:[_-][\w-]*)?'
   # no leading \b: underscore is a word char, so \b would miss client_secret etc.
   # Over-redaction is safe; leaking is not.
   $text = [regex]::Replace($text, "(?i)($kw\b[`"']?\s*[:=]\s*[`"']?)[^\s`"']+", '$1***REDACTED***')
