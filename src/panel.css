@@ -706,6 +706,17 @@ main.hud-boot {
   padding-inline: 0.7rem;
 }
 
+#announcebutton,
+#announcetoggle,
+#soundtoggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-width: max-content;
+  white-space: nowrap;
+}
+
 .toggle-inline {
   display: inline-flex;
   align-items: center;
@@ -789,7 +800,7 @@ main.hud-boot {
 #announcebutton::before,
 #announcetoggle::before,
 #soundtoggle::before {
-  margin-right: 0.45rem;
+  flex: 0 0 auto;
   opacity: 0.72;
 }
 

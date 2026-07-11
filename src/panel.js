@@ -1572,6 +1572,50 @@ function updateStatusCounts(counts) {
   }
 }
 
+function serializeGridWave(wave, beads) {
+  return {
+    key: wave.key,
+    title: wave.title,
+    subtitle: wave.subtitle || "",
+    ids: wave.ids.map((id) => {
+      const bead = beads?.[id] || {};
+      return {
+        id,
+        state: bead.state || "",
+        phase: bead.phase || "",
+        label: bead.label || "",
+        track: bead.track || "",
+        thinking: bead.thinking || "",
+        assignee: bead.assignee || "",
+        blockedBy: Array.isArray(bead.blockedBy) ? [...bead.blockedBy] : [],
+        note: bead.note || "",
+        flag: bead.flag === true,
+        verification: Object.hasOwn(bead, "verification") ? bead.verification : null
+      };
+    })
+  };
+}
+
+function computeGridFingerprint(model, filters) {
+  const payload = {
+    filters: {
+      status: filters?.status || "all",
+      track: filters?.track || "all",
+      query: filters?.query || "",
+      unverifiedOnly: filters?.unverifiedOnly === true
+    },
+    waves: Array.isArray(model?.waves)
+      ? model.waves.map((wave) => serializeGridWave(wave, model?.beads))
+      : []
+  };
+
+  return JSON.stringify(payload);
+}
+
+function shouldRebuildGrid(previousFingerprint, nextFingerprint) {
+  return previousFingerprint !== nextFingerprint;
+}
+
 function renderCards(state) {
   const wavesRoot = byId("waves");
   if (!wavesRoot) {
@@ -1584,7 +1628,13 @@ function renderCards(state) {
     return;
   }
 
+  const nextFingerprint = computeGridFingerprint(state.model, state.filters);
+  if (!shouldRebuildGrid(state.lastGridFingerprint, nextFingerprint)) {
+    return;
+  }
+
   wavesRoot.replaceChildren();
+  state.lastGridFingerprint = nextFingerprint;
   const model = state.model;
   if (!model) {
     return;
@@ -2040,6 +2090,7 @@ function buildState(config) {
     issuesById: new Map(),
     trackOptions: ["all"],
     model: null,
+    lastGridFingerprint: null,
     source: { mode: "demo", path: "inline demo", issues: DEMO_ISSUES, hint: DEMO_HINT },
     orchestrator: null,
     onBeadsCompleted: completionEvents.onBeadsCompleted,
@@ -2631,6 +2682,7 @@ if (typeof globalThis !== "undefined") {
     nextTheme,
     parseAttemptValue,
     parseLockTelemetry,
+    computeGridFingerprint,
     readInlineMeta,
     readStoredAnnounceEnabled,
     readStoredAutoRefreshEnabled,
@@ -2639,6 +2691,7 @@ if (typeof globalThis !== "undefined") {
     resolveSnapshotPayload,
     selectAnnouncementVoice,
     shouldCommitRefreshResult,
+    shouldRebuildGrid,
     shouldAnnounce,
     summarizeOrchestrator,
     snapshotIssues
