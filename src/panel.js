@@ -71,6 +71,7 @@ function applyCardFilters(cards, filters) {
   const statusFilter = filters?.status || "all";
   const trackFilter = filters?.track || "all";
   const query = filters?.query || "";
+  const unverifiedOnly = filters?.unverifiedOnly === true;
 
   return cards.filter((card) => {
     if (statusFilter !== "all" && card.state !== statusFilter) {
@@ -78,6 +79,10 @@ function applyCardFilters(cards, filters) {
     }
 
     if (trackFilter !== "all" && (card.track || "").toUpperCase() !== trackFilter) {
+      return false;
+    }
+
+    if (unverifiedOnly && !(card.state === "done" && card.verification === null)) {
       return false;
     }
 
@@ -355,6 +360,153 @@ function getWaveBadge(wave, index) {
   return `W${numeric}`;
 }
 
+function mapVerificationBadge(verification, state) {
+  if (state !== "done") {
+    return null;
+  }
+
+  if (verification === "pass") {
+    return {
+      tone: "pass",
+      text: "VERIFIED",
+      title: "independent verification passed"
+    };
+  }
+
+  if (verification === "fail") {
+    return {
+      tone: "fail",
+      text: "VERIFY FAILED",
+      title: "independent verification failed"
+    };
+  }
+
+  return {
+    tone: "drift",
+    text: "unverified",
+    title: "closed without independent verification (drift)"
+  };
+}
+
+function parseAttemptValue(value) {
+  const match = String(value || "").match(/\battempt=(\d+)\b/i);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function previewRawValue(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
+}
+
+function parseLockTelemetry(value) {
+  const raw = String(value || "");
+  const readField = (name) => {
+    const match = raw.match(new RegExp(`\\b${name}=(\\S+)`, "i"));
+    return match ? match[1] : null;
+  };
+
+  return {
+    holder: readField("holder"),
+    lastConfirmation: readField("last_confirmation"),
+    handoffId: readField("handoff_id")
+  };
+}
+
+function getTelemetryAgeBucket(timestamp, now = Date.now()) {
+  const parsed = Date.parse(timestamp);
+  if (!Number.isFinite(parsed)) {
+    return {
+      tone: "unknown",
+      label: "AGE ?"
+    };
+  }
+
+  const deltaMs = Math.max(0, now - parsed);
+  const deltaMinutes = Math.floor(deltaMs / 60000);
+
+  if (deltaMinutes < 30) {
+    return {
+      tone: "fresh",
+      label: deltaMinutes < 1 ? "AGE <1m" : `AGE ${deltaMinutes}m`
+    };
+  }
+
+  if (deltaMinutes < 120) {
+    return {
+      tone: "warm",
+      label: `AGE ${deltaMinutes}m`
+    };
+  }
+
+  const deltaHours = Math.floor(deltaMinutes / 60);
+  return {
+    tone: "stale",
+    label: `AGE ${deltaHours}h`
+  };
+}
+
+function summarizeOrchestrator(orchestrator, now = Date.now()) {
+  if (!orchestrator || typeof orchestrator !== "object") {
+    return null;
+  }
+
+  const summary = {
+    present: true,
+    lock: null,
+    age: null,
+    handoff: null,
+    attemptsByBead: {},
+    fallbacks: []
+  };
+
+  for (const [key, rawValue] of Object.entries(orchestrator)) {
+    if (typeof rawValue !== "string") {
+      continue;
+    }
+
+    if (key === "orchestrator-lock") {
+      const lock = parseLockTelemetry(rawValue);
+      const hasUsefulLock = Boolean(lock.holder || lock.lastConfirmation || lock.handoffId);
+      if (hasUsefulLock) {
+        summary.lock = lock;
+        summary.age = getTelemetryAgeBucket(lock.lastConfirmation, now);
+        if (lock.handoffId && lock.handoffId !== "none") {
+          summary.handoff = lock.handoffId;
+        }
+      } else {
+        summary.fallbacks.push({ key, raw: previewRawValue(rawValue) });
+      }
+      continue;
+    }
+
+    if (key.startsWith("attempts-")) {
+      const attempt = parseAttemptValue(rawValue);
+      if (attempt !== null) {
+        summary.attemptsByBead[key.slice("attempts-".length)] = attempt;
+      } else {
+        summary.fallbacks.push({ key, raw: previewRawValue(rawValue) });
+      }
+      continue;
+    }
+
+    if (key.startsWith("handoff")) {
+      summary.fallbacks.push({ key, raw: previewRawValue(rawValue) });
+      continue;
+    }
+
+    summary.fallbacks.push({ key, raw: previewRawValue(rawValue) });
+  }
+
+  return summary;
+}
+
 function buildCardView(issue, bead) {
   return {
     id: issue.id,
@@ -366,7 +518,8 @@ function buildCardView(issue, bead) {
     blockedBy: bead.blockedBy || [],
     assignee: bead.assignee || "unassigned",
     note: bead.note || "",
-    flag: bead.flag === true
+    flag: bead.flag === true,
+    verification: Object.hasOwn(bead, "verification") ? bead.verification : null
   };
 }
 
@@ -397,6 +550,149 @@ function updateTrackFilters(state) {
     button.dataset.track = track;
     button.textContent = track === "all" ? "TRACK: ALL" : `TRACK: ${track}`;
     container.appendChild(button);
+  }
+}
+
+function ensureUnverifiedChip() {
+  const chipsRoot = byId("chips");
+  if (!chipsRoot) {
+    return null;
+  }
+
+  const existing = document.getElementById("c-unverified");
+  if (existing) {
+    return existing;
+  }
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.id = "c-unverified";
+  button.className = "chip chip-ghost";
+  button.textContent = "UNVERIFIED ONLY";
+  button.title = "Show only done cards closed without independent verification";
+  chipsRoot.appendChild(button);
+  return button;
+}
+
+function updateUnverifiedChip(state) {
+  const chip = ensureUnverifiedChip();
+  if (!chip) {
+    return;
+  }
+
+  chip.classList.toggle("active", state.filters.unverifiedOnly === true);
+  chip.setAttribute("aria-pressed", state.filters.unverifiedOnly === true ? "true" : "false");
+}
+
+function ensureTelemetryStrip() {
+  const waves = byId("waves");
+  if (!waves || !waves.parentElement) {
+    return null;
+  }
+
+  let strip = document.getElementById("orchestrator-strip");
+  if (strip) {
+    return strip;
+  }
+
+  strip = document.createElement("details");
+  strip.id = "orchestrator-strip";
+  strip.className = "orchestrator-strip";
+  strip.open = true;
+  waves.parentElement.insertBefore(strip, waves);
+  return strip;
+}
+
+function createTelemetryChip(text, tone = "") {
+  const chip = document.createElement("span");
+  chip.className = `telemetry-chip${tone ? ` ${tone}` : ""}`;
+  chip.textContent = text;
+  return chip;
+}
+
+function renderOrchestratorStrip(state) {
+  const summary = state.orchestrator;
+  const strip = ensureTelemetryStrip();
+  if (!strip) {
+    return;
+  }
+
+  if (!summary?.present) {
+    strip.remove();
+    return;
+  }
+
+  strip.replaceChildren();
+
+  const header = document.createElement("summary");
+  header.className = "orchestrator-summary";
+  header.textContent = "ORCHESTRATOR HUD";
+  strip.appendChild(header);
+
+  const body = document.createElement("div");
+  body.className = "orchestrator-body";
+  strip.appendChild(body);
+
+  const primary = document.createElement("div");
+  primary.className = "orchestrator-primary";
+  body.appendChild(primary);
+
+  const secondary = document.createElement("div");
+  secondary.className = "orchestrator-secondary";
+  body.appendChild(secondary);
+
+  let hasRenderableTelemetry = false;
+  let hasStructuredTelemetry = false;
+
+  if (summary.lock?.holder) {
+    primary.appendChild(createTelemetryChip(`LOCK ${summary.lock.holder}`, "info"));
+    hasRenderableTelemetry = true;
+    hasStructuredTelemetry = true;
+  }
+
+  if (summary.age?.label) {
+    const ageChip = createTelemetryChip(summary.age.label, summary.age.tone);
+    if (summary.lock?.lastConfirmation) {
+      ageChip.title = summary.lock.lastConfirmation;
+    }
+    primary.appendChild(ageChip);
+    hasRenderableTelemetry = true;
+    hasStructuredTelemetry = true;
+  }
+
+  if (summary.handoff) {
+    const handoffChip = createTelemetryChip(`HANDOFF ${summary.handoff}`, "warn");
+    handoffChip.title = "pending handoff";
+    primary.appendChild(handoffChip);
+    hasRenderableTelemetry = true;
+    hasStructuredTelemetry = true;
+  }
+
+  const attemptEntries = Object.entries(summary.attemptsByBead).filter(([, attempt]) => attempt >= 2);
+  if (attemptEntries.length > 0) {
+    secondary.appendChild(createTelemetryChip(`RETRIES ${attemptEntries.length}`, "warn"));
+    hasRenderableTelemetry = true;
+    hasStructuredTelemetry = true;
+  }
+
+  if (summary.fallbacks.length > 0) {
+    for (const fallback of summary.fallbacks) {
+      const rawChip = createTelemetryChip(`${fallback.key}: ${fallback.raw || "?"}`, "raw");
+      rawChip.title = fallback.key;
+      secondary.appendChild(rawChip);
+    }
+    hasRenderableTelemetry = true;
+  }
+
+  if (!hasStructuredTelemetry) {
+    const empty = document.createElement("div");
+    empty.className = "orchestrator-empty";
+    empty.textContent = "NO TELEMETRY";
+    if (hasRenderableTelemetry) {
+      body.insertBefore(empty, primary);
+    } else {
+      body.replaceChildren(empty);
+    }
   }
 }
 
@@ -515,6 +811,20 @@ function renderCards(state) {
         think.textContent = card.thinking;
       }
 
+      const verificationBadge = mapVerificationBadge(card.verification, card.state);
+      if (verificationBadge) {
+        const badge = document.createElement("span");
+        badge.className = `verify-badge ${verificationBadge.tone}`;
+        badge.textContent = verificationBadge.text;
+        badge.title = verificationBadge.title;
+        if (think) {
+          think.insertAdjacentElement("afterend", badge);
+        } else {
+          const headerNode = queryOne(".card-header", fragment);
+          headerNode?.appendChild(badge);
+        }
+      }
+
       const titleNode = queryOne(".card-title", fragment);
       setText(titleNode, card.label);
 
@@ -526,6 +836,17 @@ function renderCards(state) {
 
       const fileNode = queryOne(".tag.file", fragment);
       setText(fileNode, card.phase);
+
+      const attempt = state.orchestrator?.attemptsByBead?.[card.id];
+      if (attempt >= 2) {
+        const tagsRoot = queryOne(".tags", fragment);
+        if (tagsRoot) {
+          const attemptChip = document.createElement("span");
+          attemptChip.className = "tag attempt-tag";
+          attemptChip.textContent = `ATT ${attempt}/3`;
+          tagsRoot.appendChild(attemptChip);
+        }
+      }
 
       const whoNode = queryOne(".who", fragment);
       const whoValue = whoNode ? queryOne(".value", whoNode) : null;
@@ -598,6 +919,8 @@ function renderCards(state) {
 function render(state) {
   updateStatusCounts(state.model?.counts);
   updateTrackFilters(state);
+  updateUnverifiedChip(state);
+  renderOrchestratorStrip(state);
   renderCards(state);
 
   const ring = byId("ring");
@@ -771,6 +1094,7 @@ async function resolveData(config, state) {
       mode,
       path: dataPath,
       issues: liveIssues,
+      orchestrator: null,
       hint: ""
     };
   }
@@ -781,6 +1105,9 @@ async function resolveData(config, state) {
       path: snapshot.source || "window.BMC_SNAPSHOT",
       generatedAt: snapshot.generated_at,
       issues: snapshotIssueList || [],
+      orchestrator: snapshot.orchestrator && typeof snapshot.orchestrator === "object"
+        ? snapshot.orchestrator
+        : null,
       hint: ""
     };
   }
@@ -789,6 +1116,7 @@ async function resolveData(config, state) {
     mode,
     path: "inline demo",
     issues: DEMO_ISSUES,
+    orchestrator: null,
     hint: DEMO_HINT
   };
 }
@@ -799,13 +1127,15 @@ function buildState(config) {
     filters: {
       status: "all",
       track: "all",
-      query: ""
+      query: "",
+      unverifiedOnly: false
     },
     strings: deepMergeStrings(config.strings),
     issuesById: new Map(),
     trackOptions: ["all"],
     model: null,
     source: { mode: "demo", path: "inline demo", issues: DEMO_ISSUES, hint: DEMO_HINT },
+    orchestrator: null,
     timerId: 0,
     lastUpdatedLabel: "never",
     now: () => Date.now()
@@ -819,14 +1149,25 @@ function bindStatusFilters(state) {
   }
 
   chipsRoot.addEventListener("click", (event) => {
-    const chip = event.target instanceof Element ? event.target.closest(".chip[data-f]") : null;
-    if (!chip) {
+    const target = event.target instanceof Element ? event.target.closest(".chip") : null;
+    if (!target) {
       return;
     }
 
-    state.filters.status = chip.dataset.f || "all";
+    if (target.id === "c-unverified") {
+      state.filters.unverifiedOnly = !state.filters.unverifiedOnly;
+      updateUnverifiedChip(state);
+      render(state);
+      return;
+    }
+
+    if (!target.matches(".chip[data-f]")) {
+      return;
+    }
+
+    state.filters.status = target.dataset.f || "all";
     for (const node of chipsRoot.querySelectorAll(".chip[data-f]")) {
-      node.classList.toggle("active", node === chip);
+      node.classList.toggle("active", node === target);
     }
     render(state);
   });
@@ -892,6 +1233,7 @@ async function refresh(state, { manual }) {
   );
   state.model = deriveModel(source.issues, meta, { strings: state.config.strings });
   state.trackOptions = computeTrackOptions(state.model);
+  state.orchestrator = summarizeOrchestrator(source.orchestrator, state.now());
   stampLastUpdated(state);
   render(state);
   setSourceUi(source, state);
@@ -1015,11 +1357,16 @@ if (typeof globalThis !== "undefined") {
     applyCardFilters,
     decideSourceMode,
     formatSnapshotAge,
+    getTelemetryAgeBucket,
     init,
+    mapVerificationBadge,
     matchesSearch,
     nextTheme,
+    parseAttemptValue,
+    parseLockTelemetry,
     readInlineMeta,
     resolveSnapshotPayload,
+    summarizeOrchestrator,
     snapshotIssues
   };
 }

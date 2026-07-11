@@ -690,3 +690,162 @@ main {
   text-align: center;
   letter-spacing: 1px;
 }
+
+/* ===== bmc-6 ===== */
+
+.chip.chip-ghost {
+  border-style: dashed;
+  opacity: 0.8;
+}
+
+#orchestrator-strip {
+  border: 1px solid rgba(var(--bmc-accent-rgb), 0.22);
+  background:
+    linear-gradient(90deg, rgba(var(--bmc-accent-rgb), 0.1), rgba(var(--bmc-accent-rgb), 0.02)),
+    var(--bmc-card-bg);
+  box-shadow: inset 0 0 20px rgba(var(--bmc-accent-rgb), 0.04);
+  border-radius: 4px;
+  padding: 0.75rem 1rem 0.9rem;
+}
+
+#orchestrator-strip[open] {
+  display: block;
+}
+
+.orchestrator-summary {
+  cursor: pointer;
+  list-style: none;
+  font-family: 'Share Tech Mono', monospace;
+  letter-spacing: 0.14em;
+  color: var(--bmc-accent);
+  font-size: 0.85rem;
+}
+
+.orchestrator-summary::-webkit-details-marker {
+  display: none;
+}
+
+.orchestrator-body,
+.orchestrator-primary,
+.orchestrator-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.orchestrator-body {
+  margin-top: 0.75rem;
+  flex-direction: column;
+}
+
+.telemetry-chip,
+.verify-badge {
+  font-family: 'Share Tech Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.telemetry-chip {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.72rem;
+  color: var(--bmc-text-secondary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.telemetry-chip.info {
+  color: var(--bmc-accent);
+  border-color: rgba(var(--bmc-accent-rgb), 0.4);
+}
+
+.telemetry-chip.warn {
+  color: var(--bmc-secondary);
+  border-color: rgba(var(--bmc-secondary-rgb), 0.4);
+}
+
+.telemetry-chip.raw {
+  color: var(--bmc-muted);
+  border-style: dashed;
+}
+
+.telemetry-chip.fresh {
+  color: #67e8f9;
+  border-color: rgba(103, 232, 249, 0.55);
+  box-shadow: 0 0 10px rgba(103, 232, 249, 0.16);
+  animation: telemetry-pulse 1.8s ease-in-out infinite;
+}
+
+.telemetry-chip.warm {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.telemetry-chip.stale {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+.telemetry-chip.unknown {
+  color: var(--bmc-muted);
+  border-style: dashed;
+}
+
+.orchestrator-empty {
+  font-family: 'Share Tech Mono', monospace;
+  color: var(--bmc-muted);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.verify-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.48rem;
+  font-size: 0.62rem;
+  margin-left: 0.1rem;
+}
+
+.verify-badge.pass {
+  color: #67e8f9;
+  border-color: rgba(103, 232, 249, 0.55);
+  background: rgba(103, 232, 249, 0.09);
+}
+
+.verify-badge.fail {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.52);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.verify-badge.drift {
+  color: var(--bmc-muted);
+  border-color: rgba(148, 163, 184, 0.5);
+  background: transparent;
+  border-style: dashed;
+}
+
+.attempt-tag {
+  color: var(--bmc-secondary);
+  border-color: rgba(var(--bmc-secondary-rgb), 0.3);
+  background: rgba(var(--bmc-secondary-rgb), 0.08);
+}
+
+@keyframes telemetry-pulse {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(103, 232, 249, 0.12);
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(103, 232, 249, 0.3);
+  }
+}
+
+@media (max-width: 700px) {
+  #orchestrator-strip {
+    padding: 0.7rem 0.85rem 0.85rem;
+  }
+
+  .verify-badge {
+    margin-left: 0;
+  }
+}
