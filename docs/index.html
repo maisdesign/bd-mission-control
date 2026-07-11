@@ -1005,6 +1005,36 @@ main.hud-boot {
   letter-spacing: 0.04em;
 }
 
+/* bmc-19 accessibility utilities and focus treatment */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.id-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.chip:focus-visible,
+.hud-btn:focus-visible,
+#search:focus-visible,
+#auto:focus-visible,
+.id-button:focus-visible {
+  outline: 2px solid var(--bmc-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(var(--bmc-accent-rgb), 0.18);
+}
+
 .stpill {
   padding: 0.18rem 0.48rem;
   border: 1px solid currentColor;
@@ -1521,15 +1551,15 @@ main.hud-boot {
     </style>
   </head>
   <body>
-    <div class="boot-overlay" aria-hidden="true">
-      <div class="boot-scan"></div>
+    <div id="boot-overlay" class="boot-overlay" aria-hidden="true" inert>
+      <div class="boot-scan" aria-hidden="true"></div>
       <div class="boot-panel">
         <div class="boot-title">
           <span data-i18n="boot_title">T.A.K.Y. ONLINE</span>
           <span class="boot-caret"></span>
         </div>
         <div class="boot-subtitle" data-i18n="boot_subtitle">INITIALIZING MISSION CONTROL HUD</div>
-        <div class="boot-bar" role="presentation">
+        <div class="boot-bar" role="presentation" aria-hidden="true">
           <div class="boot-bar-fill"></div>
         </div>
       </div>
@@ -1569,14 +1599,22 @@ main.hud-boot {
     <header id="hud-header" class="hud-boot">
       <div class="header-primary">
         <div id="ring-container">
-          <div id="ring" style="--ring-percent: 70;">
-            <div class="ring-ticks ring-ticks-outer"></div>
-            <div class="ring-ticks ring-ticks-inner"></div>
+          <div
+            id="ring"
+            style="--ring-percent: 70;"
+            role="progressbar"
+            aria-label="Completion progress"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="70"
+          >
+            <div class="ring-ticks ring-ticks-outer" aria-hidden="true"></div>
+            <div class="ring-ticks ring-ticks-inner" aria-hidden="true"></div>
             <svg class="ring-svg" viewBox="0 0 100 100" aria-hidden="true">
               <circle class="ring-track" cx="50" cy="50" r="42"></circle>
               <circle class="ring-progress" cx="50" cy="50" r="42"></circle>
             </svg>
-            <div class="ring-core"></div>
+            <div class="ring-core" aria-hidden="true"></div>
             <div id="ringpct">70%</div>
           </div>
         </div>
@@ -1587,19 +1625,20 @@ main.hud-boot {
         </div>
       </div>
 
-      <div id="chips" aria-label="Status filters">
-        <button class="chip active" id="c-all" data-f="all" data-i18n="filter_all">ALL</button>
-        <button class="chip" id="c-ready" data-f="ready" data-i18n="filter_ready">READY</button>
-        <button class="chip" id="c-prog" data-f="inprogress" data-i18n="filter_inprogress">IN PROGRESS</button>
-        <button class="chip" id="c-blocked" data-f="blocked" data-i18n="filter_blocked">BLOCKED</button>
-        <button class="chip" id="c-done" data-f="done" data-i18n="filter_done">DONE</button>
-        <button class="chip" id="c-deferred" data-f="deferred" data-i18n="filter_deferred">DEFERRED</button>
+      <div id="chips" role="group" aria-label="Status filters">
+        <button type="button" class="chip active" id="c-all" data-f="all" data-i18n="filter_all" aria-pressed="true">ALL</button>
+        <button type="button" class="chip" id="c-ready" data-f="ready" data-i18n="filter_ready" aria-pressed="false">READY</button>
+        <button type="button" class="chip" id="c-prog" data-f="inprogress" data-i18n="filter_inprogress" aria-pressed="false">IN PROGRESS</button>
+        <button type="button" class="chip" id="c-blocked" data-f="blocked" data-i18n="filter_blocked" aria-pressed="false">BLOCKED</button>
+        <button type="button" class="chip" id="c-done" data-f="done" data-i18n="filter_done" aria-pressed="false">DONE</button>
+        <button type="button" class="chip" id="c-deferred" data-f="deferred" data-i18n="filter_deferred" aria-pressed="false">DEFERRED</button>
       </div>
     </header>
 
-    <section class="ticker-wrap hud-boot" aria-label="Telemetry ticker">
+    <section class="ticker-wrap hud-boot" aria-label="Telemetry ticker" aria-describedby="ticker-static">
       <span class="ticker-label" data-i18n="ticker_label">TELEMETRY</span>
-      <div class="ticker-window">
+      <p id="ticker-static" class="sr-only">Telemetry link stable. Ledger synchronized. Monitoring wave activity. Filter channels standing by. Snapshot fallback ready. All systems nominal.</p>
+      <div class="ticker-window" aria-hidden="true">
         <div class="ticker-track">
           <div class="ticker-group">
             <span class="ticker-item" data-i18n="ticker_1">TELEMETRY LINK STABLE</span>
@@ -1636,10 +1675,11 @@ main.hud-boot {
     <main class="hud-boot">
       <nav id="toolbar" aria-label="Mission controls">
         <div class="toolbar-left">
-          <input type="text" id="search" placeholder="Search issues..." data-i18n="search_placeholder">
-          <button id="refresh" class="hud-btn" data-i18n="refresh">REFRESH</button>
+          <label class="sr-only" for="search">Search issues</label>
+          <input type="search" id="search" placeholder="Search issues..." data-i18n="search_placeholder">
+          <button type="button" id="refresh" class="hud-btn" data-i18n="refresh">REFRESH</button>
           <label class="toggle-inline">
-            <input type="checkbox" id="auto">
+            <input type="checkbox" id="auto" aria-label="Live refresh">
             <span class="toggle-label" data-i18n="auto">LIVE</span>
           </label>
         </div>
@@ -1649,22 +1689,22 @@ main.hud-boot {
             <span class="source-label" data-i18n="source">SOURCE</span>
             <span id="srctxt">DEMO</span>
           </div>
-          <span id="updtxt">Last sync: never</span>
-          <button id="announcebutton" class="hud-btn hud-btn-mini" data-i18n="announce_button" title="Speak status report">REPORT</button>
-          <button id="announcetoggle" class="hud-btn hud-btn-mini" data-i18n="announce_toggle" aria-pressed="false" title="Voice announcer off">VOICE</button>
-          <button id="soundtoggle" class="hud-btn hud-btn-mini" data-i18n="sound" aria-pressed="false" title="Completion chime off">SOUND</button>
-          <button id="themetoggle" class="hud-btn" data-i18n="theme">THEME</button>
+          <span id="updtxt" aria-live="polite" aria-atomic="true">Last sync: never</span>
+          <button type="button" id="announcebutton" class="hud-btn hud-btn-mini" data-i18n="announce_button" title="Speak status report">REPORT</button>
+          <button type="button" id="announcetoggle" class="hud-btn hud-btn-mini" data-i18n="announce_toggle" aria-pressed="false" title="Voice announcer off">VOICE</button>
+          <button type="button" id="soundtoggle" class="hud-btn hud-btn-mini" data-i18n="sound" aria-pressed="false" title="Completion chime off">SOUND</button>
+          <button type="button" id="themetoggle" class="hud-btn" data-i18n="theme">THEME</button>
         </div>
       </nav>
 
-      <section id="waves" aria-label="Wave overview"></section>
+      <section id="waves" role="region" aria-label="Wave overview"></section>
     </main>
 
     <footer id="foot" class="hud-boot">
       <span data-i18n="footer_text">TAKY MISSION CONTROL HUD v1.0.0 • TELEMETRY ENGINE SECURE</span>
     </footer>
 
-    <div id="toast" style="display: none;">
+    <div id="toast" role="status" aria-live="polite" aria-atomic="true" style="display: none;">
       <span class="toast-icon" aria-hidden="true">⚡</span>
       <span class="toast-message" data-i18n="toast_message">Telemetry connection established.</span>
     </div>
@@ -1674,7 +1714,7 @@ main.hud-boot {
         <span class="corner corner-tl" aria-hidden="true"></span>
         <span class="corner corner-br" aria-hidden="true"></span>
         <div class="card-header">
-          <span class="id" data-id=""></span>
+          <button type="button" class="id id-button" data-id=""></button>
           <span class="stpill" data-i18n="filter_ready">READY</span>
           <span class="think low">low</span>
         </div>
@@ -2426,6 +2466,12 @@ function setDisplay(node, visible) {
   }
 }
 
+function setAriaBoolean(node, name, value) {
+  if (node) {
+    node.setAttribute(name, value ? "true" : "false");
+  }
+}
+
 function hasAudioContextSupport() {
   return typeof window !== "undefined"
     && (typeof window.AudioContext === "function" || typeof window.webkitAudioContext === "function");
@@ -2850,7 +2896,9 @@ function syncSoundToggleUi(state) {
   }
 
   button.hidden = false;
-  button.setAttribute("aria-pressed", state.sound.enabled ? "true" : "false");
+  const baseLabel = button.dataset.a11yBaseLabel || button.textContent || "Sound";
+  setAriaBoolean(button, "aria-pressed", state.sound.enabled);
+  setAccessibleLabel(button, `${baseLabel}: ${state.sound.enabled ? "on" : "off"}`);
   button.textContent = state.sound.enabled ? "ON" : "OFF";
   button.title = state.sound.enabled ? "Completion chime on" : "Completion chime off";
 }
@@ -2911,12 +2959,16 @@ function syncAnnounceUi(state) {
 
   if (speakButton) {
     speakButton.hidden = false;
+    const baseLabel = speakButton.dataset.a11yBaseLabel || speakButton.textContent || "Report";
+    setAccessibleLabel(speakButton, baseLabel);
     speakButton.title = "Speak status report";
   }
 
   if (toggleButton) {
     toggleButton.hidden = false;
-    toggleButton.setAttribute("aria-pressed", state.announce.enabled ? "true" : "false");
+    const baseLabel = toggleButton.dataset.a11yBaseLabel || toggleButton.textContent || "Voice";
+    setAriaBoolean(toggleButton, "aria-pressed", state.announce.enabled);
+    setAccessibleLabel(toggleButton, `${baseLabel}: ${state.announce.enabled ? "on" : "off"}`);
     toggleButton.textContent = state.announce.enabled ? "ON" : "OFF";
     toggleButton.title = state.announce.enabled ? "Voice announcer on" : "Voice announcer off";
   }
@@ -3114,6 +3166,31 @@ function resolveI18nValue(strings, key) {
   return typeof nested === "string" ? nested : "";
 }
 
+function getUiText(strings, key, fallback) {
+  return resolveI18nValue(strings, key) || fallback;
+}
+
+function setAccessibleLabel(node, label) {
+  if (node && label) {
+    node.setAttribute("aria-label", label);
+  }
+}
+
+function syncTickerAccessibility() {
+  const staticNode = byId("ticker-static");
+  if (!staticNode) {
+    return;
+  }
+
+  const items = Array.from(document.querySelectorAll(".ticker-group:first-child .ticker-item"))
+    .map((node) => node.textContent?.trim())
+    .filter(Boolean);
+
+  if (items.length > 0) {
+    staticNode.textContent = `${items.join(". ")}.`;
+  }
+}
+
 function applyI18n(strings, configTitle) {
   const nodes = document.querySelectorAll("[data-i18n]");
   for (const node of nodes) {
@@ -3199,9 +3276,10 @@ function setThemeMode(theme) {
 
   const toggle = byId("themetoggle");
   if (toggle) {
+    const baseLabel = toggle.dataset.a11yBaseLabel || toggle.textContent || "Theme";
     toggle.setAttribute("data-mode", theme);
-    toggle.setAttribute("aria-label", `Theme: ${theme}`);
-    toggle.title = `Theme: ${theme}`;
+    toggle.setAttribute("aria-label", `${baseLabel}: ${theme}`);
+    toggle.title = `${baseLabel}: ${theme}`;
   }
 }
 
@@ -3218,6 +3296,7 @@ function createTrackContainer(toolbar) {
   const container = document.createElement("div");
   container.id = "trackchips";
   container.className = "toolbar-left";
+  container.setAttribute("role", "group");
   container.setAttribute("aria-label", "Track filters");
   toolbar.insertAdjacentElement("afterend", container);
   return container;
@@ -3422,6 +3501,7 @@ function updateTrackFilters(state) {
     button.className = `chip${state.filters.track === track ? " active" : ""}`;
     button.dataset.track = track;
     button.textContent = track === "all" ? "TRACK: ALL" : `TRACK: ${track}`;
+    setAriaBoolean(button, "aria-pressed", state.filters.track === track);
     container.appendChild(button);
   }
 }
@@ -3443,8 +3523,22 @@ function ensureUnverifiedChip() {
   button.className = "chip chip-ghost";
   button.textContent = "UNVERIFIED ONLY";
   button.title = "Show only done cards closed without independent verification";
+  button.setAttribute("aria-label", "Show only unverified completed cards");
   chipsRoot.appendChild(button);
   return button;
+}
+
+function updateStatusFilterUi(state) {
+  const chipsRoot = byId("chips");
+  if (!chipsRoot) {
+    return;
+  }
+
+  for (const node of chipsRoot.querySelectorAll(".chip[data-f]")) {
+    const pressed = (node.dataset.f || "all") === state.filters.status;
+    node.classList.toggle("active", pressed);
+    setAriaBoolean(node, "aria-pressed", pressed);
+  }
 }
 
 function updateUnverifiedChip(state) {
@@ -3454,7 +3548,7 @@ function updateUnverifiedChip(state) {
   }
 
   chip.classList.toggle("active", state.filters.unverifiedOnly === true);
-  chip.setAttribute("aria-pressed", state.filters.unverifiedOnly === true ? "true" : "false");
+  setAriaBoolean(chip, "aria-pressed", state.filters.unverifiedOnly === true);
 }
 
 function ensureTelemetryStrip() {
@@ -3664,18 +3758,22 @@ function renderCards(state) {
       }
 
       root.classList.add(card.state);
+      root.setAttribute("aria-label", `${card.id}, ${getStatusLabel(state.strings, card.state)}. ${card.label}`);
       const idNode = queryOne(".id", fragment);
-      if (idNode) {
+      if (idNode instanceof HTMLButtonElement) {
         idNode.textContent = card.id;
         idNode.dataset.id = card.id;
+        idNode.type = "button";
         idNode.title = `Copy: bd show ${card.id}`;
-        idNode.style.cursor = "pointer";
+        idNode.setAttribute("aria-label", `Copy command for ${card.id}`);
       }
 
       const pill = queryOne(".stpill", fragment);
       if (pill) {
         pill.className = `stpill stpill-${card.state}`;
-        pill.textContent = getStatusLabel(state.strings, card.state);
+        const statusLabel = getStatusLabel(state.strings, card.state);
+        pill.textContent = statusLabel;
+        pill.setAttribute("aria-label", `Status ${statusLabel}`);
       }
 
       const think = queryOne(".think", fragment);
@@ -3690,6 +3788,7 @@ function renderCards(state) {
         badge.className = `verify-badge ${verificationBadge.tone}`;
         badge.textContent = verificationBadge.text;
         badge.title = verificationBadge.title;
+        badge.setAttribute("aria-label", `${verificationBadge.text}. ${verificationBadge.title}`);
         if (think) {
           think.insertAdjacentElement("afterend", badge);
         } else {
@@ -3792,15 +3891,19 @@ function renderCards(state) {
 function render(state) {
   updateStatusCounts(state.model?.counts);
   updateTrackFilters(state);
+  updateStatusFilterUi(state);
   updateUnverifiedChip(state);
   renderOrchestratorStrip(state);
   renderCards(state);
 
   const ring = byId("ring");
+  const pct = state.model?.pct ?? 0;
   if (ring) {
-    ring.style.setProperty("--ring-percent", String(state.model?.pct ?? 0));
+    ring.style.setProperty("--ring-percent", String(pct));
+    ring.setAttribute("aria-valuenow", String(pct));
+    ring.setAttribute("aria-valuetext", `${pct}% complete`);
   }
-  setText(byId("ringpct"), `${state.model?.pct ?? 0}%`);
+  setText(byId("ringpct"), `${pct}%`);
 }
 
 function showToast(message) {
@@ -4338,13 +4441,67 @@ function bindRefresh(state) {
 
 function bindCopy() {
   document.addEventListener("click", (event) => {
-    const target = event.target instanceof Element ? event.target.closest(".id[data-id]") : null;
+    const target = event.target instanceof Element ? event.target.closest(".id-button[data-id]") : null;
     if (!target) {
       return;
     }
 
     copyIssueCommand(target.dataset.id);
   });
+}
+
+function bindBootOverlay() {
+  const overlay = byId("boot-overlay");
+  if (!overlay) {
+    return;
+  }
+
+  const hideOverlay = () => {
+    overlay.hidden = true;
+    overlay.setAttribute("aria-hidden", "true");
+    overlay.setAttribute("inert", "");
+  };
+
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+    hideOverlay();
+    return;
+  }
+
+  overlay.addEventListener("animationend", hideOverlay, { once: true });
+}
+
+function syncControlAccessibility(state) {
+  const strings = state.strings;
+  const search = byId("search");
+  const searchLabel = document.querySelector('label[for="search"]');
+  const auto = byId("auto");
+  const announceButton = byId("announcebutton");
+  const announceToggle = byId("announcetoggle");
+  const soundToggle = byId("soundtoggle");
+  const themeToggle = byId("themetoggle");
+  const updateText = byId("updtxt");
+
+  if (searchLabel) {
+    searchLabel.textContent = getUiText(strings, "search_placeholder", "Search issues");
+  }
+  setAccessibleLabel(search, getUiText(strings, "search_placeholder", "Search issues"));
+  setAccessibleLabel(auto, getUiText(strings, "auto", "Live refresh"));
+  if (announceButton) {
+    announceButton.dataset.a11yBaseLabel = getUiText(strings, "announce_button", announceButton.textContent || "Report");
+  }
+  if (announceToggle) {
+    announceToggle.dataset.a11yBaseLabel = getUiText(strings, "announce_toggle", announceToggle.textContent || "Voice");
+  }
+  if (soundToggle) {
+    soundToggle.dataset.a11yBaseLabel = getUiText(strings, "sound", soundToggle.textContent || "Sound");
+  }
+  if (themeToggle) {
+    themeToggle.dataset.a11yBaseLabel = getUiText(strings, "theme", themeToggle.textContent || "Theme");
+  }
+  if (updateText) {
+    updateText.setAttribute("aria-live", "polite");
+    updateText.setAttribute("aria-atomic", "true");
+  }
 }
 
 function bindThemeToggle() {
@@ -4474,10 +4631,13 @@ function init() {
   }
 
   applyConfig(config, state);
+  syncControlAccessibility(state);
+  syncTickerAccessibility();
   const auto = byId("auto");
   if (auto instanceof HTMLInputElement) {
     auto.checked = config.autoRefresh;
   }
+  bindBootOverlay();
   bindStatusFilters(state);
   bindTrackFilters(state);
   bindSearch(state);
