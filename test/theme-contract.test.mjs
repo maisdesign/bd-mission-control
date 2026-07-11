@@ -10,9 +10,11 @@ const rootDir = path.join(__dirname, "..");
 test("Theme contract gates validation", async () => {
   const cssPath = path.join(rootDir, "src", "panel.css");
   const templatePath = path.join(rootDir, "src", "panel.template.html");
+  const panelJsPath = path.join(rootDir, "src", "panel.js");
 
   const cssContent = await readFile(cssPath, "utf8");
   const templateContent = await readFile(templatePath, "utf8");
+  const panelJsContent = await readFile(panelJsPath, "utf8");
   const combined = cssContent + "\n" + templateContent;
 
   // 1. Zero matches for prohibited project brands (case-insensitive)
@@ -75,4 +77,38 @@ test("Theme contract gates validation", async () => {
       `Required Jarvis structure '${marker}' was not found in the visual code files`
     );
   }
+
+  // 6. A11y regression gates for bmc-19.
+  const politeLiveMatches = templateContent.match(/aria-live="polite"/g) || [];
+  assert.ok(
+    politeLiveMatches.length >= 1,
+    "Expected at least one polite live region in the template"
+  );
+
+  assert.ok(
+    templateContent.includes('role="progressbar"'),
+    "Expected the template to expose a progressbar role for the completion ring"
+  );
+
+  assert.ok(
+    panelJsContent.includes("aria-pressed"),
+    "Expected panel.js to wire aria-pressed states for interactive toggles"
+  );
+
+  const hiddenDecorativeMarkers = [
+    'class="particles" aria-hidden="true"',
+    'class="ticker-window" aria-hidden="true"'
+  ];
+
+  for (const marker of hiddenDecorativeMarkers) {
+    assert.ok(
+      templateContent.includes(marker),
+      `Expected decorative element marker '${marker}' in the template`
+    );
+  }
+
+  assert.ok(
+    cssContent.includes(":focus-visible"),
+    "Expected focus-visible styles in panel.css"
+  );
 });

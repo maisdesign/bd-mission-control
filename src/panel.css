@@ -998,6 +998,36 @@ main.hud-boot {
   letter-spacing: 0.04em;
 }
 
+/* bmc-19 accessibility utilities and focus treatment */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.id-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.chip:focus-visible,
+.hud-btn:focus-visible,
+#search:focus-visible,
+#auto:focus-visible,
+.id-button:focus-visible {
+  outline: 2px solid var(--bmc-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(var(--bmc-accent-rgb), 0.18);
+}
+
 .stpill {
   padding: 0.18rem 0.48rem;
   border: 1px solid currentColor;
