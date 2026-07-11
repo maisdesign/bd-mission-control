@@ -710,7 +710,7 @@ function syncSoundToggleUi(state) {
   setAriaBoolean(button, "aria-pressed", state.sound.enabled);
   setAccessibleLabel(button, `${baseLabel}: ${state.sound.enabled ? "on" : "off"}`);
   button.textContent = state.sound.enabled ? "ON" : "OFF";
-  button.title = state.sound.enabled ? "Completion chime on" : "Completion chime off";
+  setTooltip(button, state.sound.enabled ? "Completion chime on" : "Completion chime off");
 }
 
 function persistSoundEnabled(enabled, storage = globalThis?.localStorage) {
@@ -771,7 +771,7 @@ function syncAnnounceUi(state) {
     speakButton.hidden = false;
     const baseLabel = speakButton.dataset.a11yBaseLabel || speakButton.textContent || "Report";
     setAccessibleLabel(speakButton, baseLabel);
-    speakButton.title = "Speak status report";
+    setTooltip(speakButton, "Speak status report");
   }
 
   if (toggleButton) {
@@ -780,7 +780,7 @@ function syncAnnounceUi(state) {
     setAriaBoolean(toggleButton, "aria-pressed", state.announce.enabled);
     setAccessibleLabel(toggleButton, `${baseLabel}: ${state.announce.enabled ? "on" : "off"}`);
     toggleButton.textContent = state.announce.enabled ? "ON" : "OFF";
-    toggleButton.title = state.announce.enabled ? "Voice announcer on" : "Voice announcer off";
+    setTooltip(toggleButton, state.announce.enabled ? "Voice announcer on" : "Voice announcer off");
   }
 }
 
@@ -986,6 +986,71 @@ function setAccessibleLabel(node, label) {
   }
 }
 
+function setTooltip(node, text) {
+  if (!node) {
+    return;
+  }
+
+  const value = typeof text === "string" ? text.trim() : "";
+  if (!value) {
+    node.removeAttribute("data-tip");
+    node.removeAttribute("data-tip-align");
+    node.removeAttribute("data-tip-side");
+    return;
+  }
+
+  node.setAttribute("data-tip", value);
+}
+
+function ensureTooltipFocus(node) {
+  if (!node || node.matches("button, input, summary, a, [tabindex]")) {
+    return;
+  }
+
+  node.tabIndex = 0;
+}
+
+function syncTooltipPlacement(node) {
+  if (!node || !node.hasAttribute("data-tip")) {
+    return;
+  }
+
+  const rect = node.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const edgePad = 24;
+  const tipHalfWidth = Math.min(176, Math.max(96, rect.width * 0.65));
+
+  let align = "center";
+  if (rect.left < edgePad + tipHalfWidth) {
+    align = "left";
+  } else if ((viewportWidth - rect.right) < edgePad + tipHalfWidth) {
+    align = "right";
+  }
+
+  const side = rect.top < 72 && (viewportHeight - rect.bottom) > 72 ? "bottom" : "top";
+  node.setAttribute("data-tip-align", align);
+  node.setAttribute("data-tip-side", side);
+}
+
+function syncOverflowTooltips(root = document) {
+  const nodes = root.querySelectorAll("[data-tip-overflow]");
+  for (const node of nodes) {
+    const baseTip = node.getAttribute("data-tip-base") || node.textContent || "";
+    const overflowed = node.scrollWidth > node.clientWidth + 1;
+    if (overflowed) {
+      setTooltip(node, baseTip);
+      ensureTooltipFocus(node);
+      syncTooltipPlacement(node);
+    } else if (!node.hasAttribute("data-tip-lock")) {
+      setTooltip(node, "");
+      if (node.tabIndex === 0) {
+        node.removeAttribute("tabindex");
+      }
+    }
+  }
+}
+
 function syncTickerAccessibility() {
   const staticNode = byId("ticker-static");
   if (!staticNode) {
@@ -1089,7 +1154,7 @@ function setThemeMode(theme) {
     const baseLabel = toggle.dataset.a11yBaseLabel || toggle.textContent || "Theme";
     toggle.setAttribute("data-mode", theme);
     toggle.setAttribute("aria-label", `${baseLabel}: ${theme}`);
-    toggle.title = `${baseLabel}: ${theme}`;
+    setTooltip(toggle, `${baseLabel}: ${theme}`);
   }
 }
 
@@ -1311,7 +1376,10 @@ function updateTrackFilters(state) {
     button.className = `chip${state.filters.track === track ? " active" : ""}`;
     button.dataset.track = track;
     button.textContent = track === "all" ? "TRACK: ALL" : `TRACK: ${track}`;
+    button.dataset.tipOverflow = "true";
+    button.setAttribute("data-tip-base", button.textContent);
     setAriaBoolean(button, "aria-pressed", state.filters.track === track);
+    setAccessibleLabel(button, button.textContent);
     container.appendChild(button);
   }
 }
@@ -1332,8 +1400,8 @@ function ensureUnverifiedChip() {
   button.id = "c-unverified";
   button.className = "chip chip-ghost";
   button.textContent = "UNVERIFIED ONLY";
-  button.title = "Show only done cards closed without independent verification";
   button.setAttribute("aria-label", "Show only unverified completed cards");
+  setTooltip(button, "Show only done cards closed without independent verification");
   chipsRoot.appendChild(button);
   return button;
 }
@@ -1384,6 +1452,11 @@ function createTelemetryChip(text, tone = "") {
   const chip = document.createElement("span");
   chip.className = `telemetry-chip${tone ? ` ${tone}` : ""}`;
   chip.textContent = text;
+  chip.dataset.tipOverflow = "true";
+  chip.setAttribute("data-tip-base", text);
+  chip.setAttribute("data-tip-lock", "true");
+  ensureTooltipFocus(chip);
+  setTooltip(chip, text);
   return chip;
 }
 
@@ -1430,7 +1503,8 @@ function renderOrchestratorStrip(state) {
   if (summary.age?.label) {
     const ageChip = createTelemetryChip(summary.age.label, summary.age.tone);
     if (summary.lock?.lastConfirmation) {
-      ageChip.title = summary.lock.lastConfirmation;
+      ageChip.setAttribute("data-tip-base", summary.lock.lastConfirmation);
+      setTooltip(ageChip, summary.lock.lastConfirmation);
     }
     primary.appendChild(ageChip);
     hasRenderableTelemetry = true;
@@ -1439,7 +1513,8 @@ function renderOrchestratorStrip(state) {
 
   if (summary.handoff) {
     const handoffChip = createTelemetryChip(`HANDOFF ${summary.handoff}`, "warn");
-    handoffChip.title = "pending handoff";
+    handoffChip.setAttribute("data-tip-base", "pending handoff");
+    setTooltip(handoffChip, "pending handoff");
     primary.appendChild(handoffChip);
     hasRenderableTelemetry = true;
     hasStructuredTelemetry = true;
@@ -1455,7 +1530,8 @@ function renderOrchestratorStrip(state) {
   if (summary.fallbacks.length > 0) {
     for (const fallback of summary.fallbacks) {
       const rawChip = createTelemetryChip(`${fallback.key}: ${fallback.raw || "?"}`, "raw");
-      rawChip.title = fallback.key;
+      rawChip.setAttribute("data-tip-base", fallback.key);
+      setTooltip(rawChip, fallback.key);
       secondary.appendChild(rawChip);
     }
     hasRenderableTelemetry = true;
@@ -1574,8 +1650,8 @@ function renderCards(state) {
         idNode.textContent = card.id;
         idNode.dataset.id = card.id;
         idNode.type = "button";
-        idNode.title = `Copy: bd show ${card.id}`;
         idNode.setAttribute("aria-label", `Copy command for ${card.id}`);
+        setTooltip(idNode, `Copy: bd show ${card.id}`);
       }
 
       const pill = queryOne(".stpill", fragment);
@@ -1590,6 +1666,9 @@ function renderCards(state) {
       if (think) {
         think.className = `think ${card.thinking}`;
         think.textContent = card.thinking;
+        setTooltip(think, `Thinking load: ${card.thinking}`);
+        think.setAttribute("data-tip-lock", "true");
+        ensureTooltipFocus(think);
       }
 
       const verificationBadge = mapVerificationBadge(card.verification, card.state);
@@ -1597,8 +1676,10 @@ function renderCards(state) {
         const badge = document.createElement("span");
         badge.className = `verify-badge ${verificationBadge.tone}`;
         badge.textContent = verificationBadge.text;
-        badge.title = verificationBadge.title;
         badge.setAttribute("aria-label", `${verificationBadge.text}. ${verificationBadge.title}`);
+        setTooltip(badge, verificationBadge.title);
+        badge.setAttribute("data-tip-lock", "true");
+        ensureTooltipFocus(badge);
         if (think) {
           think.insertAdjacentElement("afterend", badge);
         } else {
@@ -1618,6 +1699,10 @@ function renderCards(state) {
 
       const fileNode = queryOne(".tag.file", fragment);
       setText(fileNode, card.phase);
+      if (fileNode) {
+        fileNode.dataset.tipOverflow = "true";
+        fileNode.setAttribute("data-tip-base", card.phase);
+      }
 
       const attempt = state.orchestrator?.attemptsByBead?.[card.id];
       if (attempt >= 2) {
@@ -1714,6 +1799,7 @@ function render(state) {
     ring.setAttribute("aria-valuetext", `${pct}% complete`);
   }
   setText(byId("ringpct"), `${pct}%`);
+  syncOverflowTooltips();
 }
 
 function showToast(message) {
@@ -2260,6 +2346,21 @@ function bindCopy() {
   });
 }
 
+function bindTooltips() {
+  const syncCurrent = (event) => {
+    const target = event.target instanceof Element ? event.target.closest("[data-tip]") : null;
+    if (target) {
+      syncTooltipPlacement(target);
+    }
+  };
+
+  document.addEventListener("mouseenter", syncCurrent, true);
+  document.addEventListener("focusin", syncCurrent, true);
+  window.addEventListener("resize", () => {
+    syncOverflowTooltips();
+  });
+}
+
 function bindBootOverlay() {
   const overlay = byId("boot-overlay");
   if (!overlay) {
@@ -2453,6 +2554,7 @@ function init() {
   bindSearch(state);
   bindRefresh(state);
   bindCopy();
+  bindTooltips();
   bindAnnounceButton(state);
   bindAnnounceToggle(state);
   bindSoundToggle(state);
