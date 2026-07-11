@@ -23,7 +23,43 @@
   --bmc-text-primary: #e2e8f0;
   --bmc-text-secondary: #94a3b8;
   --bmc-danger: #ef4444;
+  --bmc-danger-rgb: 239, 68, 68;
   --bmc-success: #10b981;
+  --bmc-success-rgb: 16, 185, 129;
+  --bmc-neutral-rgb: 148, 163, 184;
+  --bmc-button-bg: rgba(var(--bmc-accent-rgb), 0.05);
+  --bmc-button-text: var(--bmc-accent);
+  --bmc-button-hover-text: #d9f8ff;
+  --bmc-armed-button-bg: rgba(var(--bmc-accent-rgb), 0.12);
+  --bmc-armed-button-text: #d9f8ff;
+  --bmc-chip-bg: rgba(var(--bmc-accent-rgb), 0.05);
+  --bmc-chip-text: var(--bmc-text-secondary);
+  --bmc-chip-active-bg: var(--bmc-accent);
+  --bmc-chip-active-text: var(--bmc-bg);
+  --bmc-ready-tone: var(--bmc-accent);
+  --bmc-ready-bg: rgba(var(--bmc-accent-rgb), 0.1);
+  --bmc-progress-tone: var(--bmc-secondary);
+  --bmc-progress-bg: rgba(var(--bmc-secondary-rgb), 0.1);
+  --bmc-blocked-tone: var(--bmc-danger);
+  --bmc-blocked-bg: rgba(var(--bmc-danger-rgb), 0.1);
+  --bmc-done-tone: var(--bmc-success);
+  --bmc-done-bg: rgba(var(--bmc-success-rgb), 0.1);
+  --bmc-deferred-tone: #94a3b8;
+  --bmc-deferred-bg: rgba(var(--bmc-neutral-rgb), 0.1);
+  --bmc-think-high-tone: #ef4444;
+  --bmc-think-high-bg: rgba(var(--bmc-danger-rgb), 0.08);
+  --bmc-think-medhi-tone: #f59e0b;
+  --bmc-think-medhi-bg: rgba(245, 158, 11, 0.08);
+  --bmc-think-med-tone: #10b981;
+  --bmc-think-med-bg: rgba(var(--bmc-success-rgb), 0.08);
+  --bmc-think-low-tone: #94a3b8;
+  --bmc-think-low-bg: rgba(var(--bmc-neutral-rgb), 0.08);
+  --bmc-verify-pass-tone: #67e8f9;
+  --bmc-verify-pass-bg: rgba(103, 232, 249, 0.09);
+  --bmc-verify-fail-tone: #fbbf24;
+  --bmc-verify-fail-bg: rgba(251, 191, 36, 0.08);
+  --bmc-verify-drift-tone: #cbd5e1;
+  --bmc-verify-drift-bg: rgba(var(--bmc-neutral-rgb), 0.08);
   --bmc-ring-circumference: 263.89;
   --bmc-panel-width: 1440px;
 }
@@ -46,6 +82,27 @@
     --bmc-card-border: rgba(15, 118, 110, 0.25);
     --bmc-text-primary: #0f172a;
     --bmc-text-secondary: #334155;
+    --bmc-button-hover-text: #0a2f2b;
+    --bmc-armed-button-bg: rgba(var(--bmc-accent-rgb), 0.22);
+    --bmc-armed-button-text: #072f2c;
+    --bmc-progress-tone: #7c2d12;
+    --bmc-blocked-tone: #b91c1c;
+    --bmc-done-tone: #047857;
+    --bmc-deferred-tone: #334155;
+    --bmc-think-high-tone: #b91c1c;
+    --bmc-think-high-bg: rgba(185, 28, 28, 0.1);
+    --bmc-think-medhi-tone: #92400e;
+    --bmc-think-medhi-bg: rgba(146, 64, 14, 0.1);
+    --bmc-think-med-tone: #047857;
+    --bmc-think-med-bg: rgba(4, 120, 87, 0.1);
+    --bmc-think-low-tone: #475569;
+    --bmc-think-low-bg: rgba(71, 85, 105, 0.1);
+    --bmc-verify-pass-tone: #0f766e;
+    --bmc-verify-pass-bg: rgba(var(--bmc-accent-rgb), 0.12);
+    --bmc-verify-fail-tone: #92400e;
+    --bmc-verify-fail-bg: rgba(var(--bmc-secondary-rgb), 0.12);
+    --bmc-verify-drift-tone: #475569;
+    --bmc-verify-drift-bg: rgba(var(--bmc-neutral-rgb), 0.1);
   }
 }
 
@@ -85,6 +142,27 @@
   --bmc-card-border: rgba(15, 118, 110, 0.25);
   --bmc-text-primary: #0f172a;
   --bmc-text-secondary: #334155;
+  --bmc-button-hover-text: #0a2f2b;
+  --bmc-armed-button-bg: rgba(var(--bmc-accent-rgb), 0.22);
+  --bmc-armed-button-text: #072f2c;
+  --bmc-progress-tone: #7c2d12;
+  --bmc-blocked-tone: #b91c1c;
+  --bmc-done-tone: #047857;
+  --bmc-deferred-tone: #334155;
+  --bmc-think-high-tone: #b91c1c;
+  --bmc-think-high-bg: rgba(185, 28, 28, 0.1);
+  --bmc-think-medhi-tone: #92400e;
+  --bmc-think-medhi-bg: rgba(146, 64, 14, 0.1);
+  --bmc-think-med-tone: #047857;
+  --bmc-think-med-bg: rgba(4, 120, 87, 0.1);
+  --bmc-think-low-tone: #475569;
+  --bmc-think-low-bg: rgba(71, 85, 105, 0.1);
+  --bmc-verify-pass-tone: #0f766e;
+  --bmc-verify-pass-bg: rgba(var(--bmc-accent-rgb), 0.12);
+  --bmc-verify-fail-tone: #92400e;
+  --bmc-verify-fail-bg: rgba(var(--bmc-secondary-rgb), 0.12);
+  --bmc-verify-drift-tone: #475569;
+  --bmc-verify-drift-bg: rgba(var(--bmc-neutral-rgb), 0.1);
 }
 
 *,
@@ -101,7 +179,6 @@ body {
   margin: 0;
   min-height: 100vh;
   padding: clamp(1rem, 2vw, 2rem);
-  overflow-x: hidden;
   background-color: var(--bmc-bg);
   background-image: var(--bmc-bg-gradient);
   color: var(--bmc-text-primary);
@@ -303,6 +380,7 @@ main,
 #foot {
   width: min(var(--bmc-panel-width), 100%);
   margin-inline: auto;
+  min-width: 0;
 }
 
 .hud-boot {
@@ -443,14 +521,17 @@ main,
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .chip {
+  position: relative;
+  max-width: 100%;
   padding: 0.42rem 0.82rem;
   border: 1px solid var(--bmc-card-border);
   border-radius: 3px;
-  background: rgba(var(--bmc-accent-rgb), 0.05);
-  color: var(--bmc-text-secondary);
+  background: var(--bmc-chip-bg);
+  color: var(--bmc-chip-text);
   font-size: 0.78rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -471,9 +552,9 @@ main,
 }
 
 .chip.active {
-  background: var(--bmc-accent);
+  background: var(--bmc-chip-active-bg);
   border-color: var(--bmc-accent);
-  color: var(--bmc-bg);
+  color: var(--bmc-chip-active-text);
   font-weight: 700;
   box-shadow: 0 0 15px rgba(var(--bmc-accent-rgb), 0.32);
 }
@@ -486,6 +567,7 @@ main,
   display: flex;
   align-items: center;
   gap: 1rem;
+  min-width: 0;
   padding: 0.5rem 1rem;
   border: 1px solid var(--bmc-card-border);
   border-radius: 4px;
@@ -541,6 +623,7 @@ main,
 main {
   display: grid;
   gap: 1rem;
+  min-width: 0;
 }
 
 main.hud-boot {
@@ -553,6 +636,7 @@ main.hud-boot {
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
+  min-width: 0;
   padding: 0.8rem 1.2rem;
   border: 1px solid var(--bmc-card-border);
   border-radius: 4px;
@@ -566,6 +650,7 @@ main.hud-boot {
   align-items: center;
   gap: 0.8rem;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 #trackchips {
@@ -573,7 +658,10 @@ main.hud-boot {
 }
 
 #search {
-  min-width: min(22rem, 100%);
+  flex: 1 1 14rem;
+  width: min(100%, 22rem);
+  min-width: min(14rem, 100%);
+  max-width: 100%;
   padding: 0.45rem 0.8rem;
   border: 1px solid var(--bmc-card-border);
   border-radius: 3px;
@@ -595,11 +683,12 @@ main.hud-boot {
 
 .hud-btn {
   position: relative;
+  max-width: 100%;
   padding: 0.45rem 0.8rem;
   border: 1px solid var(--bmc-card-border);
   border-radius: 3px;
-  background: rgba(var(--bmc-accent-rgb), 0.05);
-  color: var(--bmc-accent);
+  background: var(--bmc-button-bg);
+  color: var(--bmc-button-text);
   font-size: 0.78rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -614,7 +703,7 @@ main.hud-boot {
 
 .hud-btn:hover {
   border-color: rgba(var(--bmc-accent-rgb), 0.7);
-  color: #d9f8ff;
+  color: var(--bmc-button-hover-text);
   box-shadow: 0 0 10px rgba(var(--bmc-accent-rgb), 0.22);
   transform: translateY(-1px);
 }
@@ -673,6 +762,8 @@ main.hud-boot {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
   padding: 0.32rem 0.62rem;
   border: 1px solid var(--bmc-card-border);
   border-radius: 3px;
@@ -688,14 +779,18 @@ main.hud-boot {
 }
 
 #srctxt {
+  min-width: 0;
   font-size: 0.8rem;
   font-weight: 700;
   color: var(--bmc-accent);
+  overflow-wrap: anywhere;
 }
 
 #updtxt {
+  min-width: 0;
   font-size: 0.8rem;
   color: var(--bmc-muted);
+  overflow-wrap: anywhere;
 }
 
 #announcebutton::before,
@@ -724,10 +819,8 @@ main.hud-boot {
 #announcetoggle[aria-pressed="true"],
 #soundtoggle[aria-pressed="true"] {
   border-color: rgba(154, 230, 255, 0.75);
-  color: #d9f8ff;
-  background:
-    linear-gradient(180deg, rgba(123, 227, 255, 0.22), rgba(26, 58, 86, 0.16)),
-    rgba(var(--bmc-accent-rgb), 0.08);
+  color: var(--bmc-armed-button-text);
+  background: var(--bmc-armed-button-bg);
   box-shadow:
     inset 0 0 12px rgba(154, 230, 255, 0.12),
     0 0 14px rgba(123, 227, 255, 0.16);
@@ -754,6 +847,7 @@ main.hud-boot {
 }
 
 #orchestrator-strip {
+  min-width: 0;
   padding: 0.75rem 1rem 0.9rem;
   border: 1px solid rgba(var(--bmc-accent-rgb), 0.22);
   border-radius: 4px;
@@ -786,6 +880,7 @@ main.hud-boot {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+  min-width: 0;
 }
 
 .orchestrator-body {
@@ -797,6 +892,8 @@ main.hud-boot {
 .verify-badge {
   display: inline-flex;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   border-radius: 999px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -852,11 +949,13 @@ main.hud-boot {
 #waves {
   display: grid;
   gap: 1.4rem;
+  min-width: 0;
 }
 
 .wave-container {
   display: grid;
   gap: 1.25rem;
+  min-width: 0;
 }
 
 .wave-header {
@@ -891,8 +990,9 @@ main.hud-boot {
 
 .wave-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 1.4rem;
+  min-width: 0;
 }
 
 .card {
@@ -901,6 +1001,7 @@ main.hud-boot {
   --card-glow: var(--bmc-accent-glow);
   --card-border: var(--bmc-card-border);
   position: relative;
+  min-width: 0;
   min-height: 220px;
   display: flex;
   flex-direction: column;
@@ -996,6 +1097,7 @@ main.hud-boot {
   align-items: center;
   gap: 0.45rem;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .id {
@@ -1036,6 +1138,7 @@ main.hud-boot {
 }
 
 .stpill {
+  max-width: 100%;
   padding: 0.18rem 0.48rem;
   border: 1px solid currentColor;
   border-radius: 999px;
@@ -1046,33 +1149,35 @@ main.hud-boot {
 }
 
 .stpill-ready {
-  color: var(--bmc-accent);
-  background: rgba(var(--bmc-accent-rgb), 0.1);
+  color: var(--bmc-ready-tone);
+  background: var(--bmc-ready-bg);
 }
 
 .stpill-inprogress {
-  color: var(--bmc-secondary);
-  background: rgba(var(--bmc-secondary-rgb), 0.1);
+  color: var(--bmc-progress-tone);
+  background: var(--bmc-progress-bg);
 }
 
 .stpill-blocked {
-  color: var(--bmc-danger);
-  background: rgba(239, 68, 68, 0.1);
+  color: var(--bmc-blocked-tone);
+  background: var(--bmc-blocked-bg);
 }
 
 .stpill-done {
-  color: var(--bmc-success);
-  background: rgba(16, 185, 129, 0.1);
+  color: var(--bmc-done-tone);
+  background: var(--bmc-done-bg);
 }
 
 .stpill-deferred {
-  color: #94a3b8;
-  background: rgba(148, 163, 184, 0.1);
+  color: var(--bmc-deferred-tone);
+  background: var(--bmc-deferred-bg);
 }
 
 .think {
   display: inline-flex;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   gap: 0.34rem;
   padding: 0.18rem 0.48rem;
   border-radius: 999px;
@@ -1091,27 +1196,27 @@ main.hud-boot {
 }
 
 .think.high {
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.5);
-  background: rgba(239, 68, 68, 0.08);
+  color: var(--bmc-think-high-tone);
+  border: 1px solid color-mix(in srgb, var(--bmc-think-high-tone) 55%, transparent);
+  background: var(--bmc-think-high-bg);
 }
 
 .think.medhi {
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.45);
-  background: rgba(245, 158, 11, 0.08);
+  color: var(--bmc-think-medhi-tone);
+  border: 1px solid color-mix(in srgb, var(--bmc-think-medhi-tone) 50%, transparent);
+  background: var(--bmc-think-medhi-bg);
 }
 
 .think.med {
-  color: #10b981;
-  border: 1px solid rgba(16, 185, 129, 0.45);
-  background: rgba(16, 185, 129, 0.08);
+  color: var(--bmc-think-med-tone);
+  border: 1px solid color-mix(in srgb, var(--bmc-think-med-tone) 50%, transparent);
+  background: var(--bmc-think-med-bg);
 }
 
 .think.low {
-  color: #94a3b8;
-  border: 1px solid rgba(148, 163, 184, 0.45);
-  background: rgba(148, 163, 184, 0.08);
+  color: var(--bmc-think-low-tone);
+  border: 1px solid color-mix(in srgb, var(--bmc-think-low-tone) 50%, transparent);
+  background: var(--bmc-think-low-bg);
 }
 
 .verify-badge {
@@ -1120,27 +1225,28 @@ main.hud-boot {
 }
 
 .verify-badge.pass {
-  color: #67e8f9;
-  border-color: rgba(103, 232, 249, 0.55);
-  background: rgba(103, 232, 249, 0.09);
+  color: var(--bmc-verify-pass-tone);
+  border-color: color-mix(in srgb, var(--bmc-verify-pass-tone) 55%, transparent);
+  background: var(--bmc-verify-pass-bg);
 }
 
 .verify-badge.fail {
-  color: #fbbf24;
-  border-color: rgba(251, 191, 36, 0.52);
-  background: rgba(251, 191, 36, 0.08);
+  color: var(--bmc-verify-fail-tone);
+  border-color: color-mix(in srgb, var(--bmc-verify-fail-tone) 52%, transparent);
+  background: var(--bmc-verify-fail-bg);
 }
 
 .verify-badge.drift {
-  color: var(--bmc-muted);
-  border-color: rgba(148, 163, 184, 0.5);
-  background: transparent;
+  color: var(--bmc-verify-drift-tone);
+  border-color: rgba(var(--bmc-neutral-rgb), 0.5);
+  background: var(--bmc-verify-drift-bg);
   border-style: dashed;
 }
 
 .card-body {
   display: grid;
   gap: 0.38rem;
+  min-width: 0;
 }
 
 .card-title {
@@ -1176,6 +1282,8 @@ main.hud-boot {
   align-items: center;
   justify-content: space-between;
   gap: 0.7rem;
+  flex-wrap: wrap;
+  min-width: 0;
   margin-top: auto;
   padding-top: 0.7rem;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -1185,6 +1293,7 @@ main.hud-boot {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   color: var(--bmc-text-secondary);
   font-size: 0.75rem;
 }
@@ -1202,12 +1311,16 @@ main.hud-boot {
   align-items: center;
   gap: 0.4rem;
   flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
   margin-left: auto;
 }
 
 .tag {
   display: inline-flex;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   min-height: 1.25rem;
   padding: 1px 6px;
   border-radius: 2px;
@@ -1225,7 +1338,122 @@ main.hud-boot {
 }
 
 .tag.file {
-  max-width: 5rem;
+  max-width: min(100%, 7rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-tip] {
+  position: relative;
+}
+
+[data-tip]::before,
+[data-tip]::after {
+  position: absolute;
+  left: 50%;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+[data-tip]::before {
+  content: "";
+  bottom: calc(100% + 0.2rem);
+  border-width: 0.4rem 0.35rem 0;
+  border-style: solid;
+  border-color: rgba(var(--bmc-accent-rgb), 0.85) transparent transparent;
+  transform: translate(-50%, 4px);
+}
+
+[data-tip]::after {
+  content: attr(data-tip);
+  bottom: calc(100% + 0.55rem);
+  inline-size: max-content;
+  max-inline-size: min(22rem, calc(100vw - 2rem));
+  padding: 0.48rem 0.62rem;
+  border: 1px solid rgba(var(--bmc-accent-rgb), 0.85);
+  border-radius: 3px;
+  background:
+    linear-gradient(180deg, rgba(var(--bmc-accent-rgb), 0.08), rgba(4, 8, 20, 0.82)),
+    rgba(4, 8, 20, 0.94);
+  box-shadow:
+    0 0 14px rgba(var(--bmc-accent-rgb), 0.22),
+    inset 0 0 12px rgba(var(--bmc-accent-rgb), 0.08);
+  color: #d7fbff;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  line-height: 1.45;
+  text-transform: uppercase;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  transform: translate(-50%, 4px);
+}
+
+[data-tip][data-tip-align="left"]::before,
+[data-tip][data-tip-align="left"]::after {
+  left: 0;
+}
+
+[data-tip][data-tip-align="left"]::before {
+  transform: translate(0, 4px);
+}
+
+[data-tip][data-tip-align="left"]::after {
+  transform: translate(0, 4px);
+}
+
+[data-tip][data-tip-align="right"]::before,
+[data-tip][data-tip-align="right"]::after {
+  left: auto;
+  right: 0;
+}
+
+[data-tip][data-tip-align="right"]::before {
+  transform: translate(0, 4px);
+}
+
+[data-tip][data-tip-align="right"]::after {
+  transform: translate(0, 4px);
+}
+
+[data-tip][data-tip-side="bottom"]::before {
+  top: calc(100% + 0.2rem);
+  bottom: auto;
+  border-width: 0 0.35rem 0.4rem;
+  border-color: transparent transparent rgba(var(--bmc-accent-rgb), 0.85);
+}
+
+[data-tip][data-tip-side="bottom"]::after {
+  top: calc(100% + 0.55rem);
+  bottom: auto;
+}
+
+[data-tip]:where(:hover, :focus-visible)::before,
+[data-tip]:where(:hover, :focus-visible)::after {
+  opacity: 1;
+}
+
+[data-tip]:where(:hover, :focus-visible)::before {
+  transform: translate(-50%, 0);
+}
+
+[data-tip][data-tip-align="left"]:where(:hover, :focus-visible)::before,
+[data-tip][data-tip-align="left"]:where(:hover, :focus-visible)::after,
+[data-tip][data-tip-align="right"]:where(:hover, :focus-visible)::before,
+[data-tip][data-tip-align="right"]:where(:hover, :focus-visible)::after {
+  transform: translate(0, 0);
+}
+
+[data-tip]:where(:hover, :focus-visible)::after {
+  transform: translate(-50%, 0);
+}
+
+[data-tip-overflow] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1509,6 +1737,16 @@ main.hud-boot {
     width: 100%;
   }
 
+  .toolbar-left,
+  .toolbar-right {
+    gap: 0.6rem;
+  }
+
+  #search {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
   #ring {
     width: 84px;
     height: 84px;
@@ -1546,6 +1784,11 @@ main.hud-boot {
 
   .ticker-track {
     transform: translateX(0) !important;
+  }
+
+  [data-tip]::before,
+  [data-tip]::after {
+    transition: none;
   }
 }
     </style>
@@ -1690,9 +1933,9 @@ main.hud-boot {
             <span id="srctxt">DEMO</span>
           </div>
           <span id="updtxt" aria-live="polite" aria-atomic="true">Last sync: never</span>
-          <button type="button" id="announcebutton" class="hud-btn hud-btn-mini" data-i18n="announce_button" title="Speak status report">REPORT</button>
-          <button type="button" id="announcetoggle" class="hud-btn hud-btn-mini" data-i18n="announce_toggle" aria-pressed="false" title="Voice announcer off">VOICE</button>
-          <button type="button" id="soundtoggle" class="hud-btn hud-btn-mini" data-i18n="sound" aria-pressed="false" title="Completion chime off">SOUND</button>
+          <button type="button" id="announcebutton" class="hud-btn hud-btn-mini" data-i18n="announce_button" data-tip="Speak status report">REPORT</button>
+          <button type="button" id="announcetoggle" class="hud-btn hud-btn-mini" data-i18n="announce_toggle" aria-pressed="false" data-tip="Voice announcer off">VOICE</button>
+          <button type="button" id="soundtoggle" class="hud-btn hud-btn-mini" data-i18n="sound" aria-pressed="false" data-tip="Completion chime off">SOUND</button>
           <button type="button" id="themetoggle" class="hud-btn" data-i18n="theme">THEME</button>
         </div>
       </nav>
@@ -2900,7 +3143,7 @@ function syncSoundToggleUi(state) {
   setAriaBoolean(button, "aria-pressed", state.sound.enabled);
   setAccessibleLabel(button, `${baseLabel}: ${state.sound.enabled ? "on" : "off"}`);
   button.textContent = state.sound.enabled ? "ON" : "OFF";
-  button.title = state.sound.enabled ? "Completion chime on" : "Completion chime off";
+  setTooltip(button, state.sound.enabled ? "Completion chime on" : "Completion chime off");
 }
 
 function persistSoundEnabled(enabled, storage = globalThis?.localStorage) {
@@ -2961,7 +3204,7 @@ function syncAnnounceUi(state) {
     speakButton.hidden = false;
     const baseLabel = speakButton.dataset.a11yBaseLabel || speakButton.textContent || "Report";
     setAccessibleLabel(speakButton, baseLabel);
-    speakButton.title = "Speak status report";
+    setTooltip(speakButton, "Speak status report");
   }
 
   if (toggleButton) {
@@ -2970,7 +3213,7 @@ function syncAnnounceUi(state) {
     setAriaBoolean(toggleButton, "aria-pressed", state.announce.enabled);
     setAccessibleLabel(toggleButton, `${baseLabel}: ${state.announce.enabled ? "on" : "off"}`);
     toggleButton.textContent = state.announce.enabled ? "ON" : "OFF";
-    toggleButton.title = state.announce.enabled ? "Voice announcer on" : "Voice announcer off";
+    setTooltip(toggleButton, state.announce.enabled ? "Voice announcer on" : "Voice announcer off");
   }
 }
 
@@ -3176,6 +3419,71 @@ function setAccessibleLabel(node, label) {
   }
 }
 
+function setTooltip(node, text) {
+  if (!node) {
+    return;
+  }
+
+  const value = typeof text === "string" ? text.trim() : "";
+  if (!value) {
+    node.removeAttribute("data-tip");
+    node.removeAttribute("data-tip-align");
+    node.removeAttribute("data-tip-side");
+    return;
+  }
+
+  node.setAttribute("data-tip", value);
+}
+
+function ensureTooltipFocus(node) {
+  if (!node || node.matches("button, input, summary, a, [tabindex]")) {
+    return;
+  }
+
+  node.tabIndex = 0;
+}
+
+function syncTooltipPlacement(node) {
+  if (!node || !node.hasAttribute("data-tip")) {
+    return;
+  }
+
+  const rect = node.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const edgePad = 24;
+  const tipHalfWidth = Math.min(176, Math.max(96, rect.width * 0.65));
+
+  let align = "center";
+  if (rect.left < edgePad + tipHalfWidth) {
+    align = "left";
+  } else if ((viewportWidth - rect.right) < edgePad + tipHalfWidth) {
+    align = "right";
+  }
+
+  const side = rect.top < 72 && (viewportHeight - rect.bottom) > 72 ? "bottom" : "top";
+  node.setAttribute("data-tip-align", align);
+  node.setAttribute("data-tip-side", side);
+}
+
+function syncOverflowTooltips(root = document) {
+  const nodes = root.querySelectorAll("[data-tip-overflow]");
+  for (const node of nodes) {
+    const baseTip = node.getAttribute("data-tip-base") || node.textContent || "";
+    const overflowed = node.scrollWidth > node.clientWidth + 1;
+    if (overflowed) {
+      setTooltip(node, baseTip);
+      ensureTooltipFocus(node);
+      syncTooltipPlacement(node);
+    } else if (!node.hasAttribute("data-tip-lock")) {
+      setTooltip(node, "");
+      if (node.tabIndex === 0) {
+        node.removeAttribute("tabindex");
+      }
+    }
+  }
+}
+
 function syncTickerAccessibility() {
   const staticNode = byId("ticker-static");
   if (!staticNode) {
@@ -3279,7 +3587,7 @@ function setThemeMode(theme) {
     const baseLabel = toggle.dataset.a11yBaseLabel || toggle.textContent || "Theme";
     toggle.setAttribute("data-mode", theme);
     toggle.setAttribute("aria-label", `${baseLabel}: ${theme}`);
-    toggle.title = `${baseLabel}: ${theme}`;
+    setTooltip(toggle, `${baseLabel}: ${theme}`);
   }
 }
 
@@ -3501,7 +3809,10 @@ function updateTrackFilters(state) {
     button.className = `chip${state.filters.track === track ? " active" : ""}`;
     button.dataset.track = track;
     button.textContent = track === "all" ? "TRACK: ALL" : `TRACK: ${track}`;
+    button.dataset.tipOverflow = "true";
+    button.setAttribute("data-tip-base", button.textContent);
     setAriaBoolean(button, "aria-pressed", state.filters.track === track);
+    setAccessibleLabel(button, button.textContent);
     container.appendChild(button);
   }
 }
@@ -3522,8 +3833,8 @@ function ensureUnverifiedChip() {
   button.id = "c-unverified";
   button.className = "chip chip-ghost";
   button.textContent = "UNVERIFIED ONLY";
-  button.title = "Show only done cards closed without independent verification";
   button.setAttribute("aria-label", "Show only unverified completed cards");
+  setTooltip(button, "Show only done cards closed without independent verification");
   chipsRoot.appendChild(button);
   return button;
 }
@@ -3574,6 +3885,11 @@ function createTelemetryChip(text, tone = "") {
   const chip = document.createElement("span");
   chip.className = `telemetry-chip${tone ? ` ${tone}` : ""}`;
   chip.textContent = text;
+  chip.dataset.tipOverflow = "true";
+  chip.setAttribute("data-tip-base", text);
+  chip.setAttribute("data-tip-lock", "true");
+  ensureTooltipFocus(chip);
+  setTooltip(chip, text);
   return chip;
 }
 
@@ -3620,7 +3936,8 @@ function renderOrchestratorStrip(state) {
   if (summary.age?.label) {
     const ageChip = createTelemetryChip(summary.age.label, summary.age.tone);
     if (summary.lock?.lastConfirmation) {
-      ageChip.title = summary.lock.lastConfirmation;
+      ageChip.setAttribute("data-tip-base", summary.lock.lastConfirmation);
+      setTooltip(ageChip, summary.lock.lastConfirmation);
     }
     primary.appendChild(ageChip);
     hasRenderableTelemetry = true;
@@ -3629,7 +3946,8 @@ function renderOrchestratorStrip(state) {
 
   if (summary.handoff) {
     const handoffChip = createTelemetryChip(`HANDOFF ${summary.handoff}`, "warn");
-    handoffChip.title = "pending handoff";
+    handoffChip.setAttribute("data-tip-base", "pending handoff");
+    setTooltip(handoffChip, "pending handoff");
     primary.appendChild(handoffChip);
     hasRenderableTelemetry = true;
     hasStructuredTelemetry = true;
@@ -3645,7 +3963,8 @@ function renderOrchestratorStrip(state) {
   if (summary.fallbacks.length > 0) {
     for (const fallback of summary.fallbacks) {
       const rawChip = createTelemetryChip(`${fallback.key}: ${fallback.raw || "?"}`, "raw");
-      rawChip.title = fallback.key;
+      rawChip.setAttribute("data-tip-base", fallback.key);
+      setTooltip(rawChip, fallback.key);
       secondary.appendChild(rawChip);
     }
     hasRenderableTelemetry = true;
@@ -3764,8 +4083,8 @@ function renderCards(state) {
         idNode.textContent = card.id;
         idNode.dataset.id = card.id;
         idNode.type = "button";
-        idNode.title = `Copy: bd show ${card.id}`;
         idNode.setAttribute("aria-label", `Copy command for ${card.id}`);
+        setTooltip(idNode, `Copy: bd show ${card.id}`);
       }
 
       const pill = queryOne(".stpill", fragment);
@@ -3780,6 +4099,9 @@ function renderCards(state) {
       if (think) {
         think.className = `think ${card.thinking}`;
         think.textContent = card.thinking;
+        setTooltip(think, `Thinking load: ${card.thinking}`);
+        think.setAttribute("data-tip-lock", "true");
+        ensureTooltipFocus(think);
       }
 
       const verificationBadge = mapVerificationBadge(card.verification, card.state);
@@ -3787,8 +4109,10 @@ function renderCards(state) {
         const badge = document.createElement("span");
         badge.className = `verify-badge ${verificationBadge.tone}`;
         badge.textContent = verificationBadge.text;
-        badge.title = verificationBadge.title;
         badge.setAttribute("aria-label", `${verificationBadge.text}. ${verificationBadge.title}`);
+        setTooltip(badge, verificationBadge.title);
+        badge.setAttribute("data-tip-lock", "true");
+        ensureTooltipFocus(badge);
         if (think) {
           think.insertAdjacentElement("afterend", badge);
         } else {
@@ -3808,6 +4132,10 @@ function renderCards(state) {
 
       const fileNode = queryOne(".tag.file", fragment);
       setText(fileNode, card.phase);
+      if (fileNode) {
+        fileNode.dataset.tipOverflow = "true";
+        fileNode.setAttribute("data-tip-base", card.phase);
+      }
 
       const attempt = state.orchestrator?.attemptsByBead?.[card.id];
       if (attempt >= 2) {
@@ -3904,6 +4232,7 @@ function render(state) {
     ring.setAttribute("aria-valuetext", `${pct}% complete`);
   }
   setText(byId("ringpct"), `${pct}%`);
+  syncOverflowTooltips();
 }
 
 function showToast(message) {
@@ -4450,6 +4779,21 @@ function bindCopy() {
   });
 }
 
+function bindTooltips() {
+  const syncCurrent = (event) => {
+    const target = event.target instanceof Element ? event.target.closest("[data-tip]") : null;
+    if (target) {
+      syncTooltipPlacement(target);
+    }
+  };
+
+  document.addEventListener("mouseenter", syncCurrent, true);
+  document.addEventListener("focusin", syncCurrent, true);
+  window.addEventListener("resize", () => {
+    syncOverflowTooltips();
+  });
+}
+
 function bindBootOverlay() {
   const overlay = byId("boot-overlay");
   if (!overlay) {
@@ -4643,6 +4987,7 @@ function init() {
   bindSearch(state);
   bindRefresh(state);
   bindCopy();
+  bindTooltips();
   bindAnnounceButton(state);
   bindAnnounceToggle(state);
   bindSoundToggle(state);
