@@ -103,17 +103,31 @@ function decideRefreshCycle({ mode, inFlight, timerTick }) {
   return { shouldFetch: true, keepModel, queueNext: false };
 }
 
-function shouldCommitRefreshResult({ hasCurrentModel, liveFetchFailed }) {
-  if (liveFetchFailed && hasCurrentModel) {
-    return false;
+function acceptLiveResult({ ok, contentType, parsedCount, currentCount }) {
+  if (!ok) {
+    return { accepted: false, reason: "status" };
   }
 
-  return true;
+  const normalizedContentType = String(contentType || "").trim().toLowerCase();
+  if (normalizedContentType.includes("text/html")) {
+    return { accepted: false, reason: "content-type" };
+  }
+
+  if (Number(parsedCount) === 0 && Number(currentCount) > 0) {
+    return { accepted: false, reason: "empty-parse" };
+  }
+
+  return { accepted: true, reason: "" };
+}
+
+function acceptSnapshotResult({ parsedCount, currentCount }) {
+  return !(Number(parsedCount) === 0 && Number(currentCount) > 0);
 }
 
 const DEMO_HINT = "no data - run refresh or serve over HTTP";
 const DEFAULT_DATA_PATH = "../.beads/issues.jsonl";
 const DEFAULT_REFRESH_INTERVAL = 15000;
+const PANEL_VERSION = "v1.0.0";
 const SOUND_STORAGE_KEY = "bmc-sound";
 const ANNOUNCE_STORAGE_KEY = "bmc-announce";
 const AUTO_REFRESH_STORAGE_KEY = "bmc-auto";
@@ -1716,12 +1730,24 @@ function stampLastUpdated(state) {
 
 async function fetchLiveIssues(path) {
   const response = await fetch(path, { cache: "no-store" });
+  const contentType = response.headers?.get?.("content-type") || "";
+
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    return {
+      ok: false,
+      status: response.status,
+      contentType,
+      issues: []
+    };
   }
 
   const text = await response.text();
-  return parseJSONL(text);
+  return {
+    ok: true,
+    status: response.status,
+    contentType,
+    issues: parseJSONL(text)
+  };
 }
 
 function snapshotIssues(snapshot) {
@@ -1779,23 +1805,39 @@ async function loadMeta(config) {
 
 async function resolveData(config, state) {
   const dataPath = config.dataPath || DEFAULT_DATA_PATH;
-  let fetchOk = false;
-  let liveIssues = [];
-  let liveFetchError = null;
+  const currentCount = state.model?.counts?.all ?? 0;
+  let liveResult = {
+    ok: false,
+    status: 0,
+    contentType: "",
+    issues: [],
+    error: null
+  };
 
   try {
-    liveIssues = await fetchLiveIssues(dataPath);
-    fetchOk = true;
+    liveResult = await fetchLiveIssues(dataPath);
   } catch (error) {
-    liveFetchError = error;
+    liveResult = {
+      ok: false,
+      status: 0,
+      contentType: "",
+      issues: [],
+      error
+    };
   }
 
   const snapshot = window.BMC_SNAPSHOT && typeof window.BMC_SNAPSHOT === "object"
     ? window.BMC_SNAPSHOT
     : null;
   const snapshotIssueList = snapshotIssues(snapshot);
+  const liveDecision = acceptLiveResult({
+    ok: liveResult.ok,
+    contentType: liveResult.contentType,
+    parsedCount: liveResult.issues.length,
+    currentCount
+  });
   const mode = decideSourceMode({
-    fetchOk,
+    fetchOk: liveDecision.accepted,
     snapshotPresent: snapshotIssueList !== null
   });
 
@@ -1803,11 +1845,10 @@ async function resolveData(config, state) {
     return {
       mode,
       path: dataPath,
-      issues: liveIssues,
+      issues: liveResult.issues,
       orchestrator: null,
       hint: "",
-      fetchOk,
-      liveFetchError
+      liveResult
     };
   }
 
@@ -1821,8 +1862,7 @@ async function resolveData(config, state) {
         ? snapshot.orchestrator
         : null,
       hint: "",
-      fetchOk,
-      liveFetchError
+      liveResult
     };
   }
 
@@ -1832,8 +1872,7 @@ async function resolveData(config, state) {
     issues: DEMO_ISSUES,
     orchestrator: null,
     hint: DEMO_HINT,
-    fetchOk,
-    liveFetchError
+    liveResult
   };
 }
 
@@ -1877,7 +1916,8 @@ function buildState(config) {
     refresh: {
       inFlight: false,
       pending: null,
-      pausedModeLogged: ""
+      pausedModeLogged: "",
+      startupLogged: false
     },
     timerId: 0,
     lastUpdatedLabel: "never",
@@ -2000,6 +2040,52 @@ function commitRefreshState(state, nextState) {
   state.previousPct = state.model?.pct ?? 0;
 }
 
+function formatRefreshRejectionReason({ source, currentCount }) {
+  const liveDecision = acceptLiveResult({
+    ok: source.liveResult?.ok,
+    contentType: source.liveResult?.contentType,
+    parsedCount: source.liveResult?.issues?.length ?? 0,
+    currentCount
+  });
+
+  if (!liveDecision.accepted && currentCount > 0) {
+    if (liveDecision.reason === "status") {
+      const status = source.liveResult?.status || "fetch-error";
+      return `live status ${status}`;
+    }
+
+    if (liveDecision.reason === "content-type") {
+      return `live content-type ${source.liveResult?.contentType || "unknown"}`;
+    }
+
+    return "live empty-parse";
+  }
+
+  if (source.mode === "snapshot" && !acceptSnapshotResult({
+    parsedCount: source.issues.length,
+    currentCount
+  })) {
+    return "snapshot empty-parse";
+  }
+
+  return "";
+}
+
+function shouldCommitRefreshResult({ source, currentCount }) {
+  return formatRefreshRejectionReason({ source, currentCount }) === "";
+}
+
+function logStartupDiagnostics(state, source) {
+  if (state.refresh.startupLogged) {
+    return;
+  }
+
+  console.info(
+    `BMC panel init ${PANEL_VERSION} mode=${source.mode} dataPath=${source.path} issues=${source.issues.length}`
+  );
+  state.refresh.startupLogged = true;
+}
+
 async function refresh(state, options = {}) {
   const manual = options.manual === true;
   const timerTick = options.timerTick === true;
@@ -2026,14 +2112,16 @@ async function refresh(state, options = {}) {
   try {
     const meta = await loadMeta(state.config);
     const source = await resolveData(state.config, state);
-    const liveFetchFailed = Boolean(source.liveFetchError);
     const commitAllowed = shouldCommitRefreshResult({
-      hasCurrentModel: state.model !== null,
-      liveFetchFailed
+      source,
+      currentCount: state.model?.counts?.all ?? 0
     });
 
     if (!commitAllowed) {
-      console.info("BMC refresh kept last good model after live fetch failure");
+      console.info(`BMC refresh rejected; keeping last good model (${formatRefreshRejectionReason({
+        source,
+        currentCount: state.model?.counts?.all ?? 0
+      })})`);
       return;
     }
 
@@ -2057,6 +2145,7 @@ async function refresh(state, options = {}) {
     };
 
     commitRefreshState(state, nextState);
+    logStartupDiagnostics(state, source);
 
     if (manual) {
       showToast(`Refresh complete: ${source.mode}`);
@@ -2304,6 +2393,7 @@ if (typeof globalThis !== "undefined") {
     buildAnnouncementSignature,
     buildAnnouncementValues,
     buildCompletionChime,
+    acceptLiveResult,
     collectDoneIds,
     decideRefreshCycle,
     decideSourceMode,

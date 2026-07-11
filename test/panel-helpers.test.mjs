@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 await import("../src/panel.js");
 
 const {
+  acceptLiveResult,
   applyCardFilters,
   decideRefreshCycle,
   decideSourceMode,
@@ -36,17 +37,79 @@ test("decideRefreshCycle blocks overlapping fetches and skips timer fetches outs
   );
 });
 
-test("shouldCommitRefreshResult keeps the last good model on live fetch failures", () => {
+test("acceptLiveResult decision table rejects bad live payloads and allows first-load empties", () => {
+  assert.deepEqual(
+    acceptLiveResult({ ok: false, contentType: "application/json", parsedCount: 19, currentCount: 19 }),
+    { accepted: false, reason: "status" }
+  );
+
+  assert.deepEqual(
+    acceptLiveResult({ ok: true, contentType: "text/html; charset=utf-8", parsedCount: 19, currentCount: 19 }),
+    { accepted: false, reason: "content-type" }
+  );
+
+  assert.deepEqual(
+    acceptLiveResult({ ok: true, contentType: "application/json", parsedCount: 0, currentCount: 19 }),
+    { accepted: false, reason: "empty-parse" }
+  );
+
+  assert.deepEqual(
+    acceptLiveResult({ ok: true, contentType: "application/json", parsedCount: 0, currentCount: 0 }),
+    { accepted: true, reason: "" }
+  );
+
+  assert.deepEqual(
+    acceptLiveResult({ ok: true, contentType: "application/x-ndjson", parsedCount: 19, currentCount: 19 }),
+    { accepted: true, reason: "" }
+  );
+});
+
+test("shouldCommitRefreshResult keeps the last good model for rejected live or snapshot refreshes", () => {
   assert.equal(
-    shouldCommitRefreshResult({ hasCurrentModel: true, liveFetchFailed: true }),
+    shouldCommitRefreshResult({
+      currentCount: 19,
+      source: {
+        mode: "snapshot",
+        issues: [{ id: "snap-1" }],
+        liveResult: { ok: false, status: 404, contentType: "", issues: [] }
+      }
+    }),
     false
   );
+
   assert.equal(
-    shouldCommitRefreshResult({ hasCurrentModel: false, liveFetchFailed: true }),
+    shouldCommitRefreshResult({
+      currentCount: 19,
+      source: {
+        mode: "snapshot",
+        issues: [],
+        liveResult: { ok: false, status: 404, contentType: "", issues: [] }
+      }
+    }),
+    false
+  );
+
+  assert.equal(
+    shouldCommitRefreshResult({
+      currentCount: 0,
+      source: {
+        mode: "snapshot",
+        issues: [],
+        liveResult: { ok: false, status: 404, contentType: "", issues: [] }
+      }
+    }),
     true
   );
+
   assert.equal(
-    shouldCommitRefreshResult({ hasCurrentModel: true, liveFetchFailed: false }),
+    shouldCommitRefreshResult({
+      currentCount: 19,
+      source: {
+        mode: "live",
+        issues: [{ id: "live-1" }],
+        liveResult: { ok: true, status: 200, contentType: "application/x-ndjson", issues: [{ id: "live-1" }] }
+      }
+    }),
     true
   );
 });
