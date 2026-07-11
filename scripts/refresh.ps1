@@ -1,12 +1,13 @@
 param(
   [string]$BeadsDir,
-  [string]$Out = './orchestration-data.js'
+  [string]$Out = './orchestration-data.js',
+  [switch]$NoBdEnrich
 )
 
 function Show-Usage {
   @'
 Usage:
-  powershell -NoProfile -File scripts/refresh.ps1 [-BeadsDir <path>] [-Out <path>]
+  powershell -NoProfile -File scripts/refresh.ps1 [-BeadsDir <path>] [-Out <path>] [-NoBdEnrich]
 
 Behavior:
   - Finds .beads/issues.jsonl by explicit -BeadsDir or by walking up from cwd.
@@ -52,12 +53,24 @@ function Find-IssuesPathUpward {
   return $null
 }
 
-function Test-InGitDirectory {
-  param([string]$AbsolutePath)
-  $current = Split-Path -Path $AbsolutePath -Parent
+function Test-ReparsePointPath {
+  param([string]$PathValue)
+  if (-not (Test-Path -LiteralPath $PathValue)) {
+    return $false
+  }
+  $item = Get-Item -LiteralPath $PathValue -Force
+  return (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)
+}
+
+function Test-ReparsePointAncestors {
+  param([string]$PathValue)
+  $current = Split-Path -Path $PathValue -Parent
   while (-not [string]::IsNullOrEmpty($current)) {
-    if ((Split-Path -Path $current -Leaf) -eq '.git') {
-      return $true
+    if (Test-Path -LiteralPath $current) {
+      $item = Get-Item -LiteralPath $current -Force
+      if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        return $true
+      }
     }
     $parent = Split-Path -Path $current -Parent
     if ([string]::IsNullOrEmpty($parent) -or $parent -eq $current) {
@@ -68,9 +81,43 @@ function Test-InGitDirectory {
   return $false
 }
 
+function Assert-SafeWriteTarget {
+  param([string]$PathValue)
+  if (Test-ReparsePointPath $PathValue -or Test-ReparsePointAncestors $PathValue) {
+    throw "refusing to write through a reparse point: $PathValue"
+  }
+}
+
 function JsonString {
   param([string]$Value)
   return ($Value | ConvertTo-Json -Compress)
+}
+
+function Strip-LeadBom {
+  param([string]$Value)
+  if ($null -eq $Value -or $Value.Length -eq 0) {
+    return $Value
+  }
+  if ($Value[0] -eq [char]0xFEFF) {
+    return $Value.Substring(1)
+  }
+  return $Value
+}
+
+function Read-Utf8Text {
+  param([string]$PathValue)
+  return (Strip-LeadBom (Get-Content -LiteralPath $PathValue -Encoding UTF8 -Raw))
+}
+
+function Sanitize-MemoryValue {
+  param([string]$Value)
+  $text = [string]$Value
+  $text = [regex]::Replace($text, '(?i)\b((?:api[_-]?key|bearer|token|password)\b\s*[:=]\s*)\S+', '$1***REDACTED***')
+  $text = [regex]::Replace($text, '(?i)\b((?:api[_-]?key|bearer|token|password)\b\s+)\S+', '$1***REDACTED***')
+  if ($text.Length -gt 2000) {
+    $text = $text.Substring(0, 2000)
+  }
+  return $text
 }
 
 $issuesPath = $null
@@ -87,7 +134,11 @@ if ([string]::IsNullOrEmpty($issuesPath)) {
 }
 
 $outPath = Resolve-AbsolutePath $Out
-if (Test-InGitDirectory $outPath) {
+$tempPath = $outPath + '.tmp'
+Assert-SafeWriteTarget $outPath
+Assert-SafeWriteTarget $tempPath
+
+if (($outPath -match '(^|[\\/])\.git([\\/]|$)') -or ($tempPath -match '(^|[\\/])\.git([\\/]|$)')) {
   [Console]::Error.WriteLine((Show-Usage))
   [Console]::Error.WriteLine('error: refusing to write inside a .git directory')
   exit 1
@@ -98,33 +149,15 @@ if (-not [string]::IsNullOrEmpty($outDir) -and -not (Test-Path -LiteralPath $out
   New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 }
 
-$issues = New-Object System.Collections.Generic.List[string]
-$skipped = 0
-foreach ($line in Get-Content -LiteralPath $issuesPath) {
-  $trimmed = $line.TrimEnd([char]13)
-  if ([string]::IsNullOrWhiteSpace($trimmed)) {
-    $skipped++
-    continue
-  }
-  if ($trimmed.StartsWith('{') -and $trimmed.EndsWith('}')) {
-    $issues.Add($trimmed)
-    continue
-  }
-  $skipped++
-}
-
-if ($skipped -gt 0) {
-  [Console]::Error.WriteLine(('Skipped {0} corrupt/blank lines from {1}' -f $skipped, $issuesPath))
-}
-
 $generatedAt = (Get-Date).ToUniversalTime().ToString('o')
 $sourceJson = JsonString $issuesPath
 $generatedJson = JsonString $generatedAt
-$issuesJson = [string]::Join(',', $issues)
+$issuesJsonlJson = JsonString (Read-Utf8Text $issuesPath)
 
 $orchestratorJson = $null
-try {
-  if (Get-Command bd -ErrorAction SilentlyContinue) {
+if (-not $NoBdEnrich -and (Get-Command bd -ErrorAction SilentlyContinue)) {
+  [Console]::Error.WriteLine('warning: bd memory enrichment is included in this publishable snapshot; use -NoBdEnrich to disable it')
+  try {
     $listing = & bd memories 2>$null
     if ($LASTEXITCODE -eq 0) {
       $keys = New-Object System.Collections.Generic.List[string]
@@ -142,7 +175,8 @@ try {
             throw 'bd recall failed'
           }
           $valueText = [string]::Join("`n", @($value))
-          $pairs.Add(('"{0}":{1}' -f (JsonString $key).Trim('"'), (JsonString $valueText)))
+          $safeValue = Sanitize-MemoryValue $valueText
+          $pairs.Add(('{0}:{1}' -f (JsonString $key), (JsonString $safeValue)))
         }
       }
 
@@ -150,12 +184,12 @@ try {
         $orchestratorJson = '{' + [string]::Join(',', $pairs) + '}'
       }
     }
+  } catch {
+    $orchestratorJson = $null
   }
-} catch {
-  $orchestratorJson = $null
 }
 
-$snapshot = 'window.BMC_SNAPSHOT = {"generated_at":' + $generatedJson + ',"source":' + $sourceJson + ',"issues":[' + $issuesJson + ']'
+$snapshot = 'window.BMC_SNAPSHOT = {"generated_at":' + $generatedJson + ',"source":' + $sourceJson + ',"issues_jsonl":' + $issuesJsonlJson
 if (-not [string]::IsNullOrEmpty($orchestratorJson)) {
   $snapshot += ',"orchestrator":' + $orchestratorJson
 }
@@ -165,9 +199,10 @@ $metaPath = Join-Path (Split-Path -Path $outPath -Parent) 'orchestration.meta.js
 $outputParts = New-Object System.Collections.Generic.List[string]
 $outputParts.Add($snapshot)
 if (Test-Path -LiteralPath $metaPath) {
-  $metaText = Get-Content -LiteralPath $metaPath -Raw
-  $outputParts.Add('window.BMC_META = ' + $metaText + ';')
+  $metaText = Read-Utf8Text $metaPath
+  $outputParts.Add('window.BMC_META_JSON = ' + (JsonString $metaText) + ';')
 }
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText($outPath, [string]::Join("`n", $outputParts), $utf8NoBom)
+[System.IO.File]::WriteAllText($tempPath, [string]::Join("`n", $outputParts), $utf8NoBom)
+Move-Item -LiteralPath $tempPath -Destination $outPath -Force
