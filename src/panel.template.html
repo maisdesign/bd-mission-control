@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MISSION CONTROL v{{VERSION}}</title>
+    <style>
+{{CSS}}
+    </style>
+  </head>
+  <body>
+    <header id="hud-header">
+      <div id="ring"></div>
+      <div id="chips"></div>
+    </header>
+    <main>
+      <nav id="toolbar" aria-label="Mission controls"></nav>
+      <section id="waves" aria-label="Wave overview"></section>
+      <aside id="legend" aria-label="Legend"></aside>
+    </main>
+    <footer id="foot"></footer>
+    <script>
+{{ENGINE_JS}}
+    </script>
+    <script>
+{{PANEL_JS}}
+    </script>
+  </body>
+</html>
