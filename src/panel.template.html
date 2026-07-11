@@ -22,6 +22,7 @@ IDS USED BY CONTROLLER:
   #src          : Container for data source metadata
   #srctxt       : Text node displaying active source path
   #updtxt       : Text node displaying last update time/status
+  #soundtoggle  : Button/toggle for completion sound enablement
   #waves        : Main grid/container where dynamic waves are injected
   #foot         : Footer container
   #toast        : Toast notification overlay
@@ -47,6 +48,7 @@ I18N KEYS:
   search_placeholder    : Placeholder for the search input (default: "Search issues...")
   refresh               : Manual refresh button text (default: "REFRESH")
   auto                  : Auto-refresh label text (default: "LIVE")
+  sound                 : Completion sound toggle text (default: "SOUND")
   theme                 : Theme toggle button text (default: "THEME")
   filter_all            : Chip text for All (default: "ALL")
   filter_ready          : Chip text for Ready (default: "READY")
@@ -108,6 +110,7 @@ THEMING & ACCENTS:
             <span id="srctxt">.beads/issues.jsonl</span>
           </div>
           <span id="updtxt">Last sync: never</span>
+          <button id="soundtoggle" class="hud-btn hud-btn-mini" data-i18n="sound" aria-pressed="false" title="Completion chime off">SOUND</button>
           <button id="themetoggle" class="hud-btn" data-i18n="theme">THEME</button>
         </div>
       </nav>
