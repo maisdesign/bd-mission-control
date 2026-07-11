@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFile, copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, copyFile, lstat, mkdir, mkdtemp, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -61,6 +61,20 @@ async function makeTargetProject(name) {
 
 async function readBytes(filePath) {
   return readFile(filePath);
+}
+
+async function canCreateDanglingSymlink() {
+  const probeRoot = await mkdtemp(join(tmpdir(), 'bmc-install-symlink-probe-'));
+  const linkPath = join(probeRoot, 'probe-link');
+  try {
+    await symlink('missing-target', linkPath, 'file');
+    const stat = await lstat(linkPath);
+    return stat.isSymbolicLink();
+  } catch {
+    return false;
+  } finally {
+    await unlink(linkPath).catch(() => {});
+  }
 }
 
 function assertInstallSucceeded(result, context) {
@@ -126,6 +140,22 @@ async function runPowerShellScenario() {
   assertInstallSucceeded(reinstall, 'plain reinstall should preserve config');
   assert.deepEqual(await readBytes(configPath), configEdited);
   assert.notDeepEqual(configBefore, configEdited);
+
+  const refreshBefore = await readBytes(refreshPs);
+  await appendFile(refreshPs, Buffer.from('!'));
+  const refreshEdited = await readBytes(refreshPs);
+  const refreshRefused = run('powershell', [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    join(sourceRoot, 'scripts', 'install.ps1'),
+    '-Target',
+    targetRoot,
+  ]);
+  assertInstallFailed(refreshRefused, 'plain install should refuse a modified refresh.ps1');
+  assert.deepEqual(await readBytes(refreshPs), refreshEdited);
+  assert.notDeepEqual(refreshBefore, refreshEdited);
 
   const panelBefore = await readBytes(panelPath);
   await appendFile(panelPath, Buffer.from('!'));
@@ -201,6 +231,18 @@ async function runShScenario() {
   assert.deepEqual(await readBytes(configPath), configEdited);
   assert.notDeepEqual(configBefore, configEdited);
 
+  const refreshBefore = await readBytes(refreshSh);
+  await appendFile(refreshSh, Buffer.from('!'));
+  const refreshEdited = await readBytes(refreshSh);
+  const refreshRefused = run('sh', [
+    posixJoin(posixSourceRoot, 'scripts', 'install.sh'),
+    '-Target',
+    posixTargetRoot,
+  ]);
+  assertInstallFailed(refreshRefused, 'plain install should refuse a modified refresh.sh');
+  assert.deepEqual(await readBytes(refreshSh), refreshEdited);
+  assert.notDeepEqual(refreshBefore, refreshEdited);
+
   const panelBefore = await readBytes(panelPath);
   await appendFile(panelPath, Buffer.from('!'));
   const modifiedPanel = await readBytes(panelPath);
@@ -232,6 +274,100 @@ async function runShScenario() {
 test('install scripts vendor the panel and preserve local config', async () => {
   await runPowerShellScenario();
   await runShScenario();
+});
+
+test('install scripts refuse a dangling symlink at orchestration.config.js', async (t) => {
+  if (!(await canCreateDanglingSymlink())) {
+    t.skip('dangling symlink creation is unavailable on this runner');
+    return;
+  }
+
+  const sourceRoot = await makeSourceTree();
+  const targetRoot = await makeTargetProject('bmc-install-symlink-config-');
+  const panelDir = join(targetRoot, 'docs');
+  const configPath = join(panelDir, 'orchestration.config.js');
+  const symlinkTarget = join(targetRoot, 'missing-config-target.js');
+
+  const ps = run('powershell', [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    join(sourceRoot, 'scripts', 'install.ps1'),
+    '-Target',
+    targetRoot,
+  ]);
+  assertInstallSucceeded(ps, 'initial install.ps1 failed before symlink test');
+  await unlink(configPath);
+  await symlink(symlinkTarget, configPath, 'file');
+  const psRetry = run('powershell', [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    join(sourceRoot, 'scripts', 'install.ps1'),
+    '-Target',
+    targetRoot,
+  ]);
+  assertInstallFailed(psRetry, 'install.ps1 should refuse a dangling config symlink');
+  assert.equal((await lstat(configPath)).isSymbolicLink(), true);
+
+  const sourceRootSh = await makeSourceTree();
+  const targetRootSh = await makeTargetProject('bmc-install-symlink-config-sh-');
+  const panelDirSh = join(targetRootSh, 'docs');
+  const configPathSh = join(panelDirSh, 'orchestration.config.js');
+  const symlinkTargetSh = join(targetRootSh, 'missing-config-target.js');
+  const sh = run('sh', [
+    posixJoin(toPosixPath(sourceRootSh), 'scripts', 'install.sh'),
+    '-Target',
+    toPosixPath(targetRootSh),
+  ]);
+  assertInstallSucceeded(sh, 'initial install.sh failed before symlink test');
+  await unlink(configPathSh);
+  await symlink(symlinkTargetSh, configPathSh, 'file');
+  const shRetry = run('sh', [
+    posixJoin(toPosixPath(sourceRootSh), 'scripts', 'install.sh'),
+    '-Target',
+    toPosixPath(targetRootSh),
+  ]);
+  assertInstallFailed(shRetry, 'install.sh should refuse a dangling config symlink');
+  assert.equal((await lstat(configPathSh)).isSymbolicLink(), true);
+});
+
+test('install scripts keep a literal glob-like -Dir segment', async () => {
+  const sourceRoot = await makeSourceTree();
+  const targetRoot = await makeTargetProject('bmc-install-glob-dir-');
+  const runRoot = await mkdtemp(join(tmpdir(), 'bmc-install-glob-work-'));
+
+  const panelDir = join(targetRoot, 'l[io]teral');
+  const panelPath = join(panelDir, 'orchestration.html');
+  const ps = run('powershell', [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    join(sourceRoot, 'scripts', 'install.ps1'),
+    '-Target',
+    targetRoot,
+    '-Dir',
+    'l[io]teral',
+  ], { cwd: runRoot });
+  assertInstallSucceeded(ps, 'install.ps1 should accept a literal glob-like -Dir segment');
+  assert.equal(await readBytes(panelPath).then((b) => b.length > 0), true);
+
+  const sourceRootSh = await makeSourceTree();
+  const targetRootSh = await makeTargetProject('bmc-install-glob-dir-sh-');
+  const panelDirSh = join(targetRootSh, 'l[io]teral');
+  const panelPathSh = join(panelDirSh, 'orchestration.html');
+  const sh = run('sh', [
+    posixJoin(toPosixPath(sourceRootSh), 'scripts', 'install.sh'),
+    '-Target',
+    toPosixPath(targetRootSh),
+    '-Dir',
+    'l[io]teral',
+  ], { cwd: runRoot });
+  assertInstallSucceeded(sh, 'install.sh should accept a literal glob-like -Dir segment');
+  assert.equal(await readBytes(panelPathSh).then((b) => b.length > 0), true);
 });
 
 test('install scripts refuse traversal outside the target root', async () => {

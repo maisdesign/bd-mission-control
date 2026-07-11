@@ -26,6 +26,11 @@ function Resolve-ExistingPath {
   return $resolved.Path
 }
 
+function Get-ExistingItem {
+  param([string]$PathValue)
+  return (Get-Item -LiteralPath $PathValue -Force -ErrorAction SilentlyContinue)
+}
+
 function Normalize-AbsolutePath {
   param([string]$PathValue)
   return [System.IO.Path]::GetFullPath($PathValue)
@@ -58,11 +63,11 @@ function Test-PathInsideRoot {
 
 function Test-ReparsePointPath {
   param([string]$PathValue)
-  if (-not (Test-Path -LiteralPath $PathValue)) {
+  $item = Get-ExistingItem $PathValue
+  if ($null -eq $item) {
     return $false
   }
 
-  $item = Get-Item -LiteralPath $PathValue -Force
   return (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)
 }
 
@@ -70,8 +75,8 @@ function Test-ReparsePointAncestors {
   param([string]$PathValue)
   $current = Split-Path -Path $PathValue -Parent
   while (-not [string]::IsNullOrEmpty($current)) {
-    if (Test-Path -LiteralPath $current) {
-      $item = Get-Item -LiteralPath $current -Force
+    $item = Get-ExistingItem $current
+    if ($null -ne $item) {
       if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         return $true
       }
@@ -136,8 +141,8 @@ function Write-BytesAtomic {
   )
 
   $destinationDir = Split-Path -Path $DestinationPath -Parent
-  if (-not [string]::IsNullOrEmpty($destinationDir) -and -not (Test-Path -LiteralPath $destinationDir)) {
-    New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
+  if (-not [string]::IsNullOrEmpty($destinationDir) -and -not (Get-ExistingItem $destinationDir)) {
+    [System.IO.Directory]::CreateDirectory($destinationDir) | Out-Null
   }
 
   Assert-SafeWritePath $DestinationPath
@@ -159,6 +164,34 @@ function Write-BytesAtomic {
   }
 
   Move-Item -LiteralPath $tempPath -Destination $DestinationPath -Force
+}
+
+function Write-VendoredCopy {
+  param(
+    [string]$SourcePath,
+    [string]$DestinationPath,
+    [string]$ItemLabel,
+    [switch]$Update,
+    [switch]$Force
+  )
+
+  $existingItem = Get-ExistingItem $DestinationPath
+  if ($null -ne $existingItem) {
+    Assert-SafeWritePath $DestinationPath
+    Assert-PathInsideTarget $DestinationPath
+    $sameBytes = Compare-Bytes $SourcePath $DestinationPath
+    if (-not $sameBytes -and -not ($Update -or $Force)) {
+      [Console]::Error.WriteLine((Show-Usage))
+      [Console]::Error.WriteLine(("error: existing {0} differs from source: {1}" -f $ItemLabel, $DestinationPath))
+      [Console]::Error.WriteLine('hint: rerun with -Update to replace the panel and refresh scripts')
+      throw ("refusing to overwrite locally modified {0}: {1}" -f $ItemLabel, $DestinationPath)
+    }
+    if ($Force -and -not $sameBytes) {
+      [Console]::Error.WriteLine(("WARNING: -Force is overwriting a locally modified {0}: {1}" -f $ItemLabel, $DestinationPath))
+    }
+  }
+
+  Write-BytesAtomic $SourcePath $DestinationPath
 }
 
 function Ensure-DirectoryPath {
@@ -188,14 +221,14 @@ function Ensure-DirectoryPath {
 
     $current = Join-Path $current $part
     Assert-PathInsideTarget $current
-    if (Test-Path -LiteralPath $current) {
-      $item = Get-Item -LiteralPath $current -Force
+    $item = Get-ExistingItem $current
+    if ($null -ne $item) {
+      Assert-SafeWritePath $current
       if (-not $item.PSIsContainer) {
         throw "path exists and is not a directory: $current"
       }
-      Assert-SafeWritePath $current
     } else {
-      New-Item -ItemType Directory -Path $current | Out-Null
+      [System.IO.Directory]::CreateDirectory($current) | Out-Null
     }
   }
 
@@ -241,13 +274,15 @@ function Write-ConfigStub {
     [string]$TargetBaseName
   )
 
-  if (Test-Path -LiteralPath $ConfigPath) {
+  $existingItem = Get-ExistingItem $ConfigPath
+  if ($null -ne $existingItem) {
+    Assert-SafeWritePath $ConfigPath
     return
   }
 
   $configDir = Split-Path -Path $ConfigPath -Parent
-  if (-not [string]::IsNullOrEmpty($configDir) -and -not (Test-Path -LiteralPath $configDir)) {
-    New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+  if (-not [string]::IsNullOrEmpty($configDir) -and -not (Get-ExistingItem $configDir)) {
+    [System.IO.Directory]::CreateDirectory($configDir) | Out-Null
   }
 
   Assert-SafeWritePath $ConfigPath
@@ -286,79 +321,75 @@ function Write-ConfigStub {
     }
   }
 
+  $existingItem = Get-ExistingItem $ConfigPath
+  if ($null -ne $existingItem) {
+    throw "refusing to overwrite existing config: $ConfigPath"
+  }
+
   Move-Item -LiteralPath $tempPath -Destination $ConfigPath -Force
 }
 
-$scriptRoot = Normalize-AbsolutePath $PSScriptRoot
-$repoRoot = Normalize-AbsolutePath (Split-Path -Path $scriptRoot -Parent)
-$sourcePanel = Join-Path $repoRoot 'dist/orchestration.html'
-$sourceRefreshPs1 = Join-Path $scriptRoot 'refresh.ps1'
-$sourceRefreshSh = Join-Path $scriptRoot 'refresh.sh'
+try {
+  $scriptRoot = Normalize-AbsolutePath $PSScriptRoot
+  $repoRoot = Normalize-AbsolutePath (Split-Path -Path $scriptRoot -Parent)
+  $sourcePanel = Join-Path $repoRoot 'dist/orchestration.html'
+  $sourceRefreshPs1 = Join-Path $scriptRoot 'refresh.ps1'
+  $sourceRefreshSh = Join-Path $scriptRoot 'refresh.sh'
 
-if (-not (Test-Path -LiteralPath $Target)) {
-  [Console]::Error.WriteLine((Show-Usage))
-  [Console]::Error.WriteLine("error: target does not exist: $Target")
-  exit 1
-}
-
-$script:TargetRoot = Resolve-ExistingPath $Target
-Assert-SafeWritePath $script:TargetRoot
-Assert-PathSegments $script:TargetRoot
-
-if (-not (Test-Path -LiteralPath $sourcePanel)) {
-  [Console]::Error.WriteLine((Show-Usage))
-  [Console]::Error.WriteLine("error: missing source panel: $sourcePanel")
-  exit 1
-}
-if (-not (Test-Path -LiteralPath $sourceRefreshPs1)) {
-  [Console]::Error.WriteLine((Show-Usage))
-  [Console]::Error.WriteLine("error: missing source refresh script: $sourceRefreshPs1")
-  exit 1
-}
-if (-not (Test-Path -LiteralPath $sourceRefreshSh)) {
-  [Console]::Error.WriteLine((Show-Usage))
-  [Console]::Error.WriteLine("error: missing source refresh script: $sourceRefreshSh")
-  exit 1
-}
-
-Assert-PathInsideTarget $script:TargetRoot
-
-Assert-NoTraversal $Dir
-$panelDir = Ensure-DirectoryPath $script:TargetRoot $Dir
-$panelPath = Join-Path $panelDir 'orchestration.html'
-$configPath = Join-Path $panelDir 'orchestration.config.js'
-$metaPath = Join-Path $panelDir 'orchestration.meta.json'
-$scriptsDir = Ensure-DirectoryPath $script:TargetRoot 'scripts'
-$installedRefreshPs1 = Join-Path $scriptsDir 'refresh.ps1'
-$installedRefreshSh = Join-Path $scriptsDir 'refresh.sh'
-
-if (Test-Path -LiteralPath $panelPath) {
-  Assert-SafeWritePath $panelPath
-  Assert-PathInsideTarget $panelPath
-  $samePanel = Compare-Bytes $sourcePanel $panelPath
-  if (-not $samePanel -and -not ($Update -or $Force)) {
+  if (-not (Get-ExistingItem $Target)) {
     [Console]::Error.WriteLine((Show-Usage))
-    [Console]::Error.WriteLine("error: existing panel differs from source: $panelPath")
-    [Console]::Error.WriteLine('hint: rerun with -Update to replace the panel and refresh scripts')
+    [Console]::Error.WriteLine("error: target does not exist: $Target")
     exit 1
   }
-  if ($Force -and -not $samePanel) {
-    [Console]::Error.WriteLine("WARNING: -Force is overwriting a locally modified panel file: $panelPath")
+
+  $script:TargetRoot = Resolve-ExistingPath $Target
+  Assert-SafeWritePath $script:TargetRoot
+  Assert-PathSegments $script:TargetRoot
+
+  if (-not (Get-ExistingItem $sourcePanel)) {
+    [Console]::Error.WriteLine((Show-Usage))
+    [Console]::Error.WriteLine("error: missing source panel: $sourcePanel")
+    exit 1
   }
+  if (-not (Get-ExistingItem $sourceRefreshPs1)) {
+    [Console]::Error.WriteLine((Show-Usage))
+    [Console]::Error.WriteLine("error: missing source refresh script: $sourceRefreshPs1")
+    exit 1
+  }
+  if (-not (Get-ExistingItem $sourceRefreshSh)) {
+    [Console]::Error.WriteLine((Show-Usage))
+    [Console]::Error.WriteLine("error: missing source refresh script: $sourceRefreshSh")
+    exit 1
+  }
+
+  Assert-PathInsideTarget $script:TargetRoot
+
+  Assert-NoTraversal $Dir
+  $panelDir = Ensure-DirectoryPath $script:TargetRoot $Dir
+  $panelPath = Join-Path $panelDir 'orchestration.html'
+  $configPath = Join-Path $panelDir 'orchestration.config.js'
+  $metaPath = Join-Path $panelDir 'orchestration.meta.json'
+  $scriptsDir = Ensure-DirectoryPath $script:TargetRoot 'scripts'
+  $installedRefreshPs1 = Join-Path $scriptsDir 'refresh.ps1'
+  $installedRefreshSh = Join-Path $scriptsDir 'refresh.sh'
+
+  Write-VendoredCopy $sourcePanel $panelPath 'panel file' -Update:$Update -Force:$Force
+  Write-VendoredCopy $sourceRefreshPs1 $installedRefreshPs1 'refresh.ps1' -Update:$Update -Force:$Force
+  Write-VendoredCopy $sourceRefreshSh $installedRefreshSh 'refresh.sh' -Update:$Update -Force:$Force
+  Write-ConfigStub $configPath ([System.IO.Path]::GetFileName($script:TargetRoot))
+
+  $metaItem = Get-ExistingItem $metaPath
+  if ($null -ne $metaItem) {
+    Assert-SafeWritePath $metaPath
+  }
+
+  $version = Get-PanelVersion $panelPath
+  [Console]::Out.WriteLine("JARVIS: mission control wired at $panelPath")
+  [Console]::Out.WriteLine("JARVIS: refresh with $installedRefreshPs1 or $installedRefreshSh")
+  [Console]::Out.WriteLine("JARVIS: serve the project over HTTP and open the panel in a browser")
+  [Console]::Out.WriteLine("JARVIS: config lives at $configPath")
+  [Console]::Out.WriteLine("JARVIS: panel version v$version")
+} catch {
+  [Console]::Error.WriteLine($_.Exception.Message)
+  exit 1
 }
-
-Write-BytesAtomic $sourcePanel $panelPath
-Write-BytesAtomic $sourceRefreshPs1 $installedRefreshPs1
-Write-BytesAtomic $sourceRefreshSh $installedRefreshSh
-Write-ConfigStub $configPath ([System.IO.Path]::GetFileName($script:TargetRoot))
-
-if (Test-Path -LiteralPath $metaPath) {
-  Assert-SafeWritePath $metaPath
-}
-
-$version = Get-PanelVersion $panelPath
-[Console]::Out.WriteLine("JARVIS: mission control wired at $panelPath")
-[Console]::Out.WriteLine("JARVIS: refresh with $installedRefreshPs1 or $installedRefreshSh")
-[Console]::Out.WriteLine("JARVIS: serve the project over HTTP and open the panel in a browser")
-[Console]::Out.WriteLine("JARVIS: config lives at $configPath")
-[Console]::Out.WriteLine("JARVIS: panel version v$version")
