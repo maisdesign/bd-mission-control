@@ -22,6 +22,11 @@ function hasPowerShell() {
   return !result.error && result.status === 0;
 }
 
+function hasSh() {
+  const result = run('sh', ['-c', 'exit 0']);
+  return !result.error && result.status === 0;
+}
+
 function parseSnapshot(text) {
   const source = text.replace(/^\uFEFF/, '');
   const match = source.match(/^window\.BMC_SNAPSHOT\s*=\s*([\s\S]*?);\s*(?:window\.BMC_META_JSON\s*=\s*[\s\S]*?;\s*)?$/);
@@ -56,6 +61,7 @@ test('refresh scripts generate equivalent string-payload snapshots', async () =>
   const psOut = makeTempPath('bmc-refresh-a3-ps.js');
   const shOut = posixPath(makeTempPath('bmc-refresh-a3-sh.js'));
   const ps1 = hasPowerShell();
+  const sh1 = hasSh();
 
   if (ps1) {
     const ps = run('powershell', [
@@ -71,30 +77,43 @@ test('refresh scripts generate equivalent string-payload snapshots', async () =>
     assert.equal(ps.status, 0, ps.stderr);
   }
 
-  const sh = run('sh', ['scripts/refresh.sh', '--out', shOut, '--no-bd-enrich']);
-  assert.equal(sh.status, 0, sh.stderr);
+  if (sh1) {
+    const sh = run('sh', ['scripts/refresh.sh', '--out', shOut, '--no-bd-enrich']);
+    assert.equal(sh.status, 0, sh.stderr);
 
-  const shText = await awaitableRead(shOut);
-  const shSnapshot = parseSnapshot(shText);
-  const shIssues = extractIssues(shSnapshot);
-  const shSource = normalizeSourcePath(shSnapshot.source);
+    const shText = await awaitableRead(shOut);
+    const shSnapshot = parseSnapshot(shText);
+    const shIssues = extractIssues(shSnapshot);
+    const shSource = normalizeSourcePath(shSnapshot.source);
 
-  assert.equal(shSnapshot.generated_at.length > 0, true);
-  assert.equal(shSource.endsWith('/.beads/issues.jsonl'), true);
-  assert.equal(shIssues.length, 11);
-  assert.match(shText, /\\u[0-9a-fA-F]{4}/);
-  assert.doesNotMatch(shText, /\u0001/);
+    assert.equal(shSnapshot.generated_at.length > 0, true);
+    assert.equal(shSource.endsWith('/.beads/issues.jsonl'), true);
+    assert.equal(shIssues.length, 11);
+    assert.match(shText, /\\u[0-9a-fA-F]{4}/);
+    assert.doesNotMatch(shText, /\u0001/);
 
-  if (ps1) {
+    if (ps1) {
+      const psText = await awaitableRead(psOut);
+      const psSnapshot = parseSnapshot(psText);
+      const psIssues = extractIssues(psSnapshot);
+      const psSource = normalizeSourcePath(psSnapshot.source);
+
+      assert.equal(psSnapshot.generated_at.length > 0, true);
+      assert.equal(psSource, shSource);
+      assert.equal(psIssues.length, 11);
+      assert.equal(psIssues.length, shIssues.length);
+      assert.match(psText, /\\u[0-9a-fA-F]{4}/);
+      assert.doesNotMatch(psText, /\u0001/);
+    }
+  } else if (ps1) {
     const psText = await awaitableRead(psOut);
     const psSnapshot = parseSnapshot(psText);
     const psIssues = extractIssues(psSnapshot);
     const psSource = normalizeSourcePath(psSnapshot.source);
 
     assert.equal(psSnapshot.generated_at.length > 0, true);
-    assert.equal(psSource, shSource);
+    assert.equal(psSource.endsWith('/.beads/issues.jsonl'), true);
     assert.equal(psIssues.length, 11);
-    assert.equal(psIssues.length, shIssues.length);
     assert.match(psText, /\\u[0-9a-fA-F]{4}/);
     assert.doesNotMatch(psText, /\u0001/);
   }
@@ -115,6 +134,8 @@ test('refresh scripts keep malicious JSONL inert when evaluated', async () => {
   await writeFile(metaPath, '\uFEFF{"waves":{"demo":{"title":"Demo","subtitle":"Multi-line\\nmeta","order":1}}}', 'utf8');
 
   const ps1 = hasPowerShell();
+  const sh1 = hasSh();
+
   if (ps1) {
     const ps = run('powershell', [
       '-NoProfile',
@@ -129,36 +150,56 @@ test('refresh scripts keep malicious JSONL inert when evaluated', async () => {
       '-NoBdEnrich',
     ]);
     assert.equal(ps.status, 0, ps.stderr);
+
+    const generated = await awaitableRead(outPath);
+    let alertCalled = false;
+    const context = {
+      window: {},
+      document: undefined,
+      console: { info() {}, error() {} },
+      alert() {
+        alertCalled = true;
+      },
+    };
+
+    vm.runInNewContext(generated, context, { timeout: 1000 });
+
+    assert.equal(alertCalled, false);
+    assert.equal(context.window.BMC_SNAPSHOT.issues_jsonl.includes(attackLine), true);
+    assert.equal(context.window.BMC_SNAPSHOT.issues_jsonl.includes('\u0001'), true);
+    assert.equal(JSON.parse(context.window.BMC_META_JSON).waves.demo.subtitle, 'Multi-line\nmeta');
   }
 
-  const shOut = posixPath(join(outDir, 'snapshot-sh.js'));
-  const sh = run('sh', [
-    'scripts/refresh.sh',
-    '--beads-dir',
-    posixPath(beadsDir),
-    '--out',
-    shOut,
-    '--no-bd-enrich',
-  ]);
-  assert.equal(sh.status, 0, sh.stderr);
+  if (sh1) {
+    const shOut = posixPath(join(outDir, 'snapshot-sh.js'));
+    const sh = run('sh', [
+      'scripts/refresh.sh',
+      '--beads-dir',
+      posixPath(beadsDir),
+      '--out',
+      shOut,
+      '--no-bd-enrich',
+    ]);
+    assert.equal(sh.status, 0, sh.stderr);
 
-  const generated = await awaitableRead(shOut);
-  let alertCalled = false;
-  const context = {
-    window: {},
-    document: undefined,
-    console: { info() {}, error() {} },
-    alert() {
-      alertCalled = true;
-    },
-  };
+    const generated = await awaitableRead(shOut);
+    let alertCalled = false;
+    const context = {
+      window: {},
+      document: undefined,
+      console: { info() {}, error() {} },
+      alert() {
+        alertCalled = true;
+      },
+    };
 
-  vm.runInNewContext(generated, context, { timeout: 1000 });
+    vm.runInNewContext(generated, context, { timeout: 1000 });
 
-  assert.equal(alertCalled, false);
-  assert.equal(context.window.BMC_SNAPSHOT.issues_jsonl.includes(attackLine), true);
-  assert.equal(context.window.BMC_SNAPSHOT.issues_jsonl.includes('\u0001'), true);
-  assert.equal(JSON.parse(context.window.BMC_META_JSON).waves.demo.subtitle, 'Multi-line\nmeta');
+    assert.equal(alertCalled, false);
+    assert.equal(context.window.BMC_SNAPSHOT.issues_jsonl.includes(attackLine), true);
+    assert.equal(context.window.BMC_SNAPSHOT.issues_jsonl.includes('\u0001'), true);
+    assert.equal(JSON.parse(context.window.BMC_META_JSON).waves.demo.subtitle, 'Multi-line\nmeta');
+  }
 });
 
 test('panel snapshot resolution accepts both issue payload shapes', async () => {
