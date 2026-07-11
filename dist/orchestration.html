@@ -1,25 +1,977 @@
+<!--
+================================================================================
+HOOK CONTRACT FOR MISSION CONTROL UI
+================================================================================
+This template exposes the DOM elements, attributes, and CSS hooks required by 
+the controller logic (bmc-4).
+
+IDS USED BY CONTROLLER:
+  #ring         : Arc reactor conic-gradient ring container (percentage-driven)
+  #ringpct      : Text readout in the center of the ring showing completion %
+  #chips        : Container for status filtering chips
+  #c-all        : Filter chip for ALL issues
+  #c-ready      : Filter chip for READY issues
+  #c-prog       : Filter chip for IN_PROGRESS issues
+  #c-blocked    : Filter chip for BLOCKED issues
+  #c-done       : Filter chip for DONE issues
+  #c-deferred   : Filter chip for DEFERRED issues
+  #toolbar      : Main navigation/control bar
+  #search       : Text input for search filtering
+  #refresh      : Button to trigger manual refresh
+  #auto         : Checkbox toggle for auto-sync/refresh
+  #src          : Container for data source metadata
+  #srctxt       : Text node displaying active source path
+  #updtxt       : Text node displaying last update time/status
+  #waves        : Main grid/container where dynamic waves are injected
+  #foot         : Footer container
+  #toast        : Toast notification overlay
+  #themetoggle  : Button/toggle for theme switching
+
+DATA ATTRIBUTES:
+  .chip[data-f]  : Status filter buttons (data-f matches status string)
+  .id[data-id]   : Element displaying task ID, holding data-id attribute
+
+CARD CLASSES:
+  .card          : Task card root container
+  .card.ready, .card.inprogress, .card.blocked, .card.done, .card.deferred : Status styling
+  .stpill        : Status telemetry pill (stpill-ready, stpill-inprogress, etc.)
+  .think         : Priority indicator container (high, medhi, med, low)
+  .tag.trk       : Track classification badge (e.g., CORE, UI)
+  .tag.file      : Target/impacted file badge
+  .warn          : Warning banner/indicator for drift or ledger verification fail
+  .blk           : Blocker indicator containing dependency details
+  .who           : Assignee / owner element
+
+I18N KEYS:
+  title                 : Title of the panel (default: "MISSION CONTROL")
+  search_placeholder    : Placeholder for the search input (default: "Search issues...")
+  refresh               : Manual refresh button text (default: "REFRESH")
+  auto                  : Auto-refresh label text (default: "LIVE")
+  theme                 : Theme toggle button text (default: "THEME")
+  filter_all            : Chip text for All (default: "ALL")
+  filter_ready          : Chip text for Ready (default: "READY")
+  filter_inprogress     : Chip text for In Progress (default: "IN PROGRESS")
+  filter_blocked        : Chip text for Blocked (default: "BLOCKED")
+  filter_done           : Chip text for Done (default: "DONE")
+  filter_deferred       : Chip text for Deferred (default: "DEFERRED")
+  card_assignee         : Card assignee label (default: "ASSIGNEE:")
+  card_blocked_by       : Card blocker label (default: "BLOCKED BY:")
+  footer_text           : Footer documentation/acknowledgments
+
+THEMING & ACCENTS:
+  The layout supports custom CSS properties. The accent color can be overridden
+  dynamically at runtime via BMC_CONFIG.accent by setting the single CSS variable:
+  --bmc-accent
+================================================================================
+-->
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>MISSION CONTROL v0.1.0</title>
+    <title data-i18n="title">MISSION CONTROL</title>
     <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
+
 :root {
+  --bmc-bg: #040814;
+  --bmc-bg-gradient: radial-gradient(circle at center, #0b1528 0%, #030712 100%);
+  --bmc-grid-color: rgba(0, 240, 255, 0.03);
+  --bmc-accent: #00f0ff;
+  --bmc-accent-rgb: 0, 240, 255;
+  --bmc-accent-glow: rgba(0, 240, 255, 0.4);
+  --bmc-accent-glow-strong: rgba(0, 240, 255, 0.7);
+  --bmc-secondary: #ffb800;
+  --bmc-secondary-rgb: 255, 184, 0;
+  --bmc-secondary-glow: rgba(255, 184, 0, 0.4);
+  --bmc-muted: #64748b;
+  --bmc-card-bg: rgba(6, 12, 30, 0.6);
+  --bmc-card-border: rgba(0, 240, 255, 0.15);
+  --bmc-text-primary: #e2e8f0;
+  --bmc-text-secondary: #94a3b8;
+  --bmc-scanline: rgba(0, 0, 0, 0.15);
+  --bmc-glow-intensity: 8px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bmc-bg: #f8fafc;
+    --bmc-bg-gradient: radial-gradient(circle at center, #f1f5f9 0%, #e2e8f0 100%);
+    --bmc-grid-color: rgba(15, 118, 110, 0.04);
+    --bmc-accent: #0f766e;
+    --bmc-accent-rgb: 15, 118, 110;
+    --bmc-accent-glow: rgba(15, 118, 110, 0.2);
+    --bmc-accent-glow-strong: rgba(15, 118, 110, 0.4);
+    --bmc-secondary: #b45309;
+    --bmc-secondary-rgb: 180, 83, 9;
+    --bmc-secondary-glow: rgba(180, 83, 9, 0.2);
+    --bmc-muted: #475569;
+    --bmc-card-bg: rgba(255, 255, 255, 0.85);
+    --bmc-card-border: rgba(15, 118, 110, 0.25);
+    --bmc-text-primary: #0f172a;
+    --bmc-text-secondary: #334155;
+    --bmc-scanline: rgba(255, 255, 255, 0.2);
+  }
+}
+
+[data-theme="dark"] {
+  --bmc-bg: #040814;
+  --bmc-bg-gradient: radial-gradient(circle at center, #0b1528 0%, #030712 100%);
+  --bmc-grid-color: rgba(0, 240, 255, 0.03);
+  --bmc-accent: #00f0ff;
+  --bmc-accent-rgb: 0, 240, 255;
+  --bmc-accent-glow: rgba(0, 240, 255, 0.4);
+  --bmc-accent-glow-strong: rgba(0, 240, 255, 0.7);
+  --bmc-secondary: #ffb800;
+  --bmc-secondary-rgb: 255, 184, 0;
+  --bmc-secondary-glow: rgba(255, 184, 0, 0.4);
+  --bmc-muted: #64748b;
+  --bmc-card-bg: rgba(6, 12, 30, 0.6);
+  --bmc-card-border: rgba(0, 240, 255, 0.15);
+  --bmc-text-primary: #e2e8f0;
+  --bmc-text-secondary: #94a3b8;
+  --bmc-scanline: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] {
+  --bmc-bg: #f8fafc;
+  --bmc-bg-gradient: radial-gradient(circle at center, #f1f5f9 0%, #e2e8f0 100%);
+  --bmc-grid-color: rgba(15, 118, 110, 0.04);
+  --bmc-accent: #0f766e;
+  --bmc-accent-rgb: 15, 118, 110;
+  --bmc-accent-glow: rgba(15, 118, 110, 0.2);
+  --bmc-accent-glow-strong: rgba(15, 118, 110, 0.4);
+  --bmc-secondary: #b45309;
+  --bmc-secondary-rgb: 180, 83, 9;
+  --bmc-secondary-glow: rgba(180, 83, 9, 0.2);
+  --bmc-muted: #475569;
+  --bmc-card-bg: rgba(255, 255, 255, 0.85);
+  --bmc-card-border: rgba(15, 118, 110, 0.25);
+  --bmc-text-primary: #0f172a;
+  --bmc-text-secondary: #334155;
+  --bmc-scanline: rgba(255, 255, 255, 0.2);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bmc-bg);
+  background-image: var(--bmc-bg-gradient);
+  color: var(--bmc-text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: 
+    linear-gradient(var(--bmc-grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bmc-grid-color) 1px, transparent 1px),
+    repeating-linear-gradient(0deg, var(--bmc-scanline), var(--bmc-scanline) 2px, transparent 2px, transparent 4px);
+  background-size: 30px 30px, 30px 30px, 100% 4px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+header, main, footer {
+  position: relative;
+  z-index: 2;
+}
+
+/* HUD Boot Animation */
+.hud-boot {
+  animation: boot-scan 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
+header.hud-boot { animation-delay: 0.05s; }
+main.hud-boot { animation-delay: 0.15s; }
+footer.hud-boot { animation-delay: 0.3s; }
+
+@keyframes boot-scan {
+  0% {
+    transform: translateY(15px);
+    opacity: 0;
+    filter: brightness(2);
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+    filter: brightness(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-boot, .ring-ticks {
+    animation: none !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+#hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px solid var(--bmc-accent-glow);
+  padding-bottom: 1.5rem;
+  gap: 2rem;
+}
+
+#ring-container {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+#ring {
+  position: relative;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 15px var(--bmc-accent-glow), inset 0 0 15px var(--bmc-accent-glow);
+  background: radial-gradient(circle, var(--bmc-card-bg) 60%, transparent 62%);
+  z-index: 2;
+}
+
+#ring::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: conic-gradient(var(--bmc-accent) calc(var(--ring-percent, 0) * 1%), rgba(var(--bmc-accent-rgb), 0.05) calc(var(--ring-percent, 0) * 1%));
+  mask: radial-gradient(circle, transparent 65%, black 66%);
+  -webkit-mask: radial-gradient(circle, transparent 65%, black 66%);
+  z-index: 1;
+}
+
+.ring-ticks {
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  border: 1px dashed var(--bmc-accent);
+  opacity: 0.35;
+  animation: rotate-ticks 25s linear infinite;
+  z-index: 0;
+}
+
+@keyframes rotate-ticks {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+#ringpct {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: var(--bmc-accent);
+  text-shadow: 0 0 var(--bmc-glow-intensity) var(--bmc-accent-glow-strong);
+  z-index: 3;
+}
+
+#chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip {
+  background: rgba(var(--bmc-accent-rgb), 0.05);
+  border: 1px solid var(--bmc-card-border);
+  color: var(--bmc-text-secondary);
+  font-family: 'Share Tech Mono', monospace;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border-radius: 3px;
+  text-transform: uppercase;
+  transition: all 0.2s;
+  letter-spacing: 1px;
+}
+
+.chip:hover {
+  background: rgba(var(--bmc-accent-rgb), 0.15);
+  border-color: var(--bmc-accent);
+  color: var(--bmc-accent);
+  box-shadow: 0 0 8px var(--bmc-accent-glow);
+}
+
+.chip.active {
+  background: var(--bmc-accent);
+  border-color: var(--bmc-accent);
+  color: var(--bmc-bg);
+  box-shadow: 0 0 10px var(--bmc-accent-glow-strong);
+  font-weight: bold;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+#toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  background: var(--bmc-card-bg);
+  border: 1px solid var(--bmc-card-border);
+  padding: 0.8rem 1.2rem;
+  border-radius: 4px;
+  box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.02);
+}
+
+.toolbar-left, .toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+#search {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--bmc-card-border);
+  color: var(--bmc-text-primary);
+  font-family: 'Share Tech Mono', monospace;
+  padding: 0.4rem 0.8rem;
+  border-radius: 3px;
+  min-width: 220px;
+  outline: none;
+  transition: all 0.2s;
+}
+
+#search:focus {
+  border-color: var(--bmc-accent);
+  box-shadow: 0 0 8px var(--bmc-accent-glow);
+}
+
+.hud-btn {
+  background: rgba(var(--bmc-accent-rgb), 0.05);
+  border: 1px solid var(--bmc-card-border);
+  color: var(--bmc-accent);
+  font-family: 'Share Tech Mono', monospace;
+  padding: 0.4rem 0.8rem;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-transform: uppercase;
+}
+
+.hud-btn:hover {
+  background: var(--bmc-accent);
+  color: var(--bmc-bg);
+  box-shadow: 0 0 8px var(--bmc-accent-glow);
+}
+
+.auto-toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+#auto {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--bmc-accent);
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  outline: none;
+  transition: all 0.2s;
+}
+
+#auto:checked {
+  background: var(--bmc-accent);
+  box-shadow: 0 0 8px var(--bmc-accent-glow);
+}
+
+#auto:checked::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  width: 3px;
+  height: 7px;
+  border: solid var(--bmc-bg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.auto-label {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--bmc-text-secondary);
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+#src {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--bmc-text-secondary);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--bmc-card-border);
+  border-radius: 3px;
+}
+
+#srctxt {
+  color: var(--bmc-accent);
+  font-weight: bold;
+}
+
+#updtxt {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--bmc-muted);
+}
+
+#waves {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.wave-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.wave-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border-bottom: 1px solid var(--bmc-card-border);
+  padding-bottom: 0.5rem;
+}
+
+.wave-badge {
+  background: var(--bmc-accent);
+  color: var(--bmc-bg);
+  font-family: 'Share Tech Mono', monospace;
+  font-weight: bold;
+  padding: 0.25rem 0.9rem;
+  font-size: 0.9rem;
+  clip-path: polygon(0% 0%, 85% 0%, 100% 100%, 0% 100%);
+  text-shadow: none;
+}
+
+.wave-title {
+  font-family: 'Share Tech Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-size: 1.05rem;
+  color: var(--bmc-accent);
+  text-shadow: 0 0 5px var(--bmc-accent-glow);
+}
+
+.wave-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.card {
+  position: relative;
+  background: var(--bmc-card-bg);
+  border: 1px solid var(--bmc-card-border);
+  padding: 1.2rem;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  transition: all 0.25s ease-in-out;
+}
+
+.card {
+  --card-accent: var(--bmc-accent);
+  --card-accent-rgb: var(--bmc-accent-rgb);
+  --card-glow: var(--bmc-accent-glow);
+  --card-border: var(--bmc-card-border);
+}
+
+.card.ready {
+  --card-accent: var(--bmc-accent);
+  --card-accent-rgb: var(--bmc-accent-rgb);
+  --card-glow: var(--bmc-accent-glow);
+  --card-border: rgba(0, 240, 255, 0.25);
+}
+
+.card.inprogress {
+  --card-accent: var(--bmc-secondary);
+  --card-accent-rgb: var(--bmc-secondary-rgb);
+  --card-glow: var(--bmc-secondary-glow);
+  --card-border: rgba(255, 184, 0, 0.25);
+}
+
+.card.blocked {
+  --card-accent: #ef4444;
+  --card-accent-rgb: 239, 68, 68;
+  --card-glow: rgba(239, 68, 68, 0.3);
+  --card-border: rgba(239, 68, 68, 0.25);
+}
+
+.card.done {
+  --card-accent: #10b981;
+  --card-accent-rgb: 16, 185, 129;
+  --card-glow: rgba(16, 185, 129, 0.2);
+  --card-border: rgba(16, 185, 129, 0.2);
+}
+
+.card.deferred {
+  --card-accent: var(--bmc-muted);
+  --card-accent-rgb: 100, 116, 139;
+  --card-glow: rgba(100, 116, 139, 0.15);
+  --card-border: rgba(100, 116, 139, 0.2);
+}
+
+.card {
+  border-color: var(--card-border);
+}
+
+.card:hover {
+  border-color: var(--card-accent);
+  box-shadow: 0 0 12px var(--card-glow);
+}
+
+.card::before, .card::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--card-accent);
+  opacity: 0.7;
+  pointer-events: none;
+  transition: all 0.25s;
+}
+
+.card::before {
+  top: -1px;
+  left: -1px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.card::after {
+  bottom: -1px;
+  right: -1px;
+  border-left: none;
+  border-top: none;
+}
+
+.card:hover::before, .card:hover::after {
+  width: 12px;
+  height: 12px;
+  opacity: 1;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.id {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.9rem;
+  font-weight: bold;
+  color: var(--card-accent);
+  letter-spacing: 0.5px;
+}
+
+.stpill {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+}
+
+.stpill-ready { color: var(--bmc-accent); background: rgba(0, 240, 255, 0.1); }
+.stpill-inprogress { color: var(--bmc-secondary); background: rgba(255, 184, 0, 0.1); }
+.stpill-blocked { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+.stpill-done { color: #10b981; background: rgba(16, 185, 129, 0.1); }
+.stpill-deferred { color: var(--bmc-muted); background: rgba(100, 116, 139, 0.1); }
+
+.think {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 2px;
+  text-transform: uppercase;
+}
+
+.think.high { color: #ef4444; border: 1px solid #ef4444; background: rgba(239, 68, 68, 0.05); }
+.think.medhi { color: #f59e0b; border: 1px solid #f59e0b; background: rgba(245, 158, 11, 0.05); }
+.think.med { color: #10b981; border: 1px solid #10b981; background: rgba(16, 185, 129, 0.05); }
+.think.low { color: var(--bmc-muted); border: 1px solid var(--bmc-muted); background: rgba(100, 116, 139, 0.05); }
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.card-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--bmc-text-primary);
+  line-height: 1.3;
+}
+
+.card-desc {
+  font-size: 0.8rem;
+  color: var(--bmc-text-secondary);
+  line-height: 1.4;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 0.8rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.75rem;
+}
+
+.who {
+  color: var(--bmc-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.who .label {
+  color: var(--bmc-muted);
+  font-family: 'Share Tech Mono', monospace;
+}
+
+.who .value {
+  font-family: 'Share Tech Mono', monospace;
+  color: var(--bmc-text-primary);
+}
+
+.tags {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.tag {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--bmc-text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tag.trk {
+  color: var(--bmc-accent);
+  border-color: var(--bmc-accent-glow);
+}
+
+.tag.file {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.warn {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.75rem;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  padding: 4px 8px;
+  border-radius: 3px;
+  margin-top: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.blk {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.75rem;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.05);
+  border-left: 2px solid #ef4444;
+  padding: 4px 8px;
+  margin-top: 0.4rem;
+}
+
+#toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background: rgba(4, 8, 20, 0.9);
+  border: 1px solid var(--bmc-accent);
+  box-shadow: 0 0 15px var(--bmc-accent-glow);
+  padding: 0.8rem 1.2rem;
+  border-radius: 4px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--bmc-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  z-index: 1000;
+  transition: all 0.3s;
+}
+
+.toast-icon {
+  color: var(--bmc-accent);
+  text-shadow: 0 0 5px var(--bmc-accent-glow-strong);
+}
+
+#foot {
+  margin-top: auto;
+  border-top: 1px solid var(--bmc-card-border);
+  padding-top: 1.5rem;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--bmc-muted);
+  text-align: center;
+  letter-spacing: 1px;
 }
     </style>
   </head>
   <body>
-    <header id="hud-header">
-      <div id="ring"></div>
-      <div id="chips"></div>
+    <header id="hud-header" class="hud-boot">
+      <div id="ring-container">
+        <div id="ring" style="--ring-percent: 70;">
+          <div class="ring-ticks"></div>
+          <div class="ring-glow-ring"></div>
+          <div id="ringpct">70%</div>
+        </div>
+      </div>
+      <div id="chips">
+        <button class="chip active" id="c-all" data-f="all" data-i18n="filter_all">ALL</button>
+        <button class="chip" id="c-ready" data-f="ready" data-i18n="filter_ready">READY</button>
+        <button class="chip" id="c-prog" data-f="inprogress" data-i18n="filter_inprogress">IN PROGRESS</button>
+        <button class="chip" id="c-blocked" data-f="blocked" data-i18n="filter_blocked">BLOCKED</button>
+        <button class="chip" id="c-done" data-f="done" data-i18n="filter_done">DONE</button>
+        <button class="chip" id="c-deferred" data-f="deferred" data-i18n="filter_deferred">DEFERRED</button>
+      </div>
     </header>
-    <main>
-      <nav id="toolbar" aria-label="Mission controls"></nav>
-      <section id="waves" aria-label="Wave overview"></section>
-      <aside id="legend" aria-label="Legend"></aside>
+
+    <main class="hud-boot">
+      <nav id="toolbar" aria-label="Mission controls">
+        <div class="toolbar-left">
+          <input type="text" id="search" placeholder="Search issues..." data-i18n="search_placeholder">
+          <button id="refresh" class="hud-btn" data-i18n="refresh">REFRESH</button>
+          <label class="auto-toggle-container">
+            <input type="checkbox" id="auto">
+            <span class="auto-label" data-i18n="auto">LIVE</span>
+          </label>
+        </div>
+        <div class="toolbar-right">
+          <div id="src">
+            <span id="srctxt">.beads/issues.jsonl</span>
+          </div>
+          <span id="updtxt">Last sync: never</span>
+          <button id="themetoggle" class="hud-btn" data-i18n="theme">THEME</button>
+        </div>
+      </nav>
+
+      <section id="waves" aria-label="Wave overview">
+        <div class="wave-container">
+          <div class="wave-header">
+            <span class="wave-badge">W1</span>
+            <span class="wave-title">DEMO WAVE: SYSTEM TELEMETRY</span>
+          </div>
+          <div class="wave-grid">
+            <!-- READY CARD -->
+            <div class="card ready">
+              <div class="card-header">
+                <span class="id" data-id="bmc-1">bmc-1</span>
+                <span class="stpill stpill-ready" data-i18n="filter_ready">READY</span>
+                <span class="think med">med</span>
+              </div>
+              <div class="card-body">
+                <h3 class="card-title">Initialize HUD Components</h3>
+                <p class="card-desc">Scan target directories and establish active webview socket connections.</p>
+              </div>
+              <div class="card-footer">
+                <div class="who">
+                  <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
+                  <span class="value">j.jarvis</span>
+                </div>
+                <div class="tags">
+                  <span class="tag trk">UI</span>
+                  <span class="tag file">src/panel.js</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- IN_PROGRESS CARD -->
+            <div class="card inprogress">
+              <div class="card-header">
+                <span class="id" data-id="bmc-2">bmc-2</span>
+                <span class="stpill stpill-inprogress" data-i18n="filter_inprogress">IN PROGRESS</span>
+                <span class="think high">high</span>
+              </div>
+              <div class="card-body">
+                <h3 class="card-title">Core Engine Compilation</h3>
+                <p class="card-desc">Parse active Dolt issues ledger and assemble data graph overlays.</p>
+              </div>
+              <div class="card-footer">
+                <div class="who">
+                  <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
+                  <span class="value">t.stark</span>
+                </div>
+                <div class="tags">
+                  <span class="tag trk">CORE</span>
+                  <span class="tag file">src/engine.mjs</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- BLOCKED CARD -->
+            <div class="card blocked">
+              <div class="card-header">
+                <span class="id" data-id="bmc-3">bmc-3</span>
+                <span class="stpill stpill-blocked" data-i18n="filter_blocked">BLOCKED</span>
+                <span class="think medhi">medhi</span>
+              </div>
+              <div class="card-body">
+                <h3 class="card-title">Arc Reactor Calibration</h3>
+                <p class="card-desc">Optimize power distribution across grid sectors.</p>
+              </div>
+              <div class="blk">
+                <span data-i18n="card_blocked_by">BLOCKED BY:</span> bmc-2
+              </div>
+              <div class="card-footer">
+                <div class="who">
+                  <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
+                  <span class="value">agy</span>
+                </div>
+                <div class="tags">
+                  <span class="tag trk">UI</span>
+                  <span class="tag file">src/panel.css</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- DONE CARD -->
+            <div class="card done">
+              <div class="card-header">
+                <span class="id" data-id="bmc-0">bmc-0</span>
+                <span class="stpill stpill-done" data-i18n="filter_done">DONE</span>
+                <span class="think low">low</span>
+              </div>
+              <div class="card-body">
+                <h3 class="card-title">Protocol Handshake</h3>
+                <p class="card-desc">Establish secure agent channel with client orchestrator.</p>
+              </div>
+              <div class="card-footer">
+                <div class="who">
+                  <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
+                  <span class="value">system</span>
+                </div>
+                <div class="tags">
+                  <span class="tag trk">NET</span>
+                  <span class="tag file">package.json</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- DEFERRED CARD -->
+            <div class="card deferred">
+              <div class="card-header">
+                <span class="id" data-id="bmc-4">bmc-4</span>
+                <span class="stpill stpill-deferred" data-i18n="filter_deferred">DEFERRED</span>
+                <span class="think low">low</span>
+              </div>
+              <div class="card-body">
+                <h3 class="card-title">Autonomous Repair Protocol</h3>
+                <p class="card-desc">Deploy nanite repair swarms to minor hull breaches.</p>
+              </div>
+              <div class="card-footer">
+                <div class="who">
+                  <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
+                  <span class="value">unassigned</span>
+                </div>
+                <div class="tags">
+                  <span class="tag trk">AUTO</span>
+                  <span class="tag file">src/repair.sh</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
-    <footer id="foot"></footer>
+
+    <footer id="foot" class="hud-boot">
+      <span data-i18n="footer_text">MISSION CONTROL HUD v0.1.0 &bull; TELEMETRY ENGINE SECURE</span>
+    </footer>
+
+    <div id="toast" class="hud-toast" style="display: none;">
+      <span class="toast-icon">⚡</span>
+      <span class="toast-message">Telemetry connection established.</span>
+    </div>
+
+    <!-- Parametric Card Template for dynamic controller compilation -->
+    <template id="card-template">
+      <div class="card {state-class}">
+        <div class="card-header">
+          <span class="id" data-id="{id-value}">{id-value}</span>
+          <span class="stpill stpill-{state-class}">{state-label}</span>
+          <span class="think {think-class}">{think-label}</span>
+        </div>
+        <div class="card-body">
+          <h3 class="card-title">{title-value}</h3>
+          <p class="card-desc">{desc-value}</p>
+        </div>
+        <div class="card-blockers">
+          {blocker-content}
+        </div>
+        <div class="card-footer">
+          <div class="who">
+            <span class="label" data-i18n="card_assignee">ASSIGNEE:</span>
+            <span class="value">{assignee-value}</span>
+          </div>
+          <div class="tags">
+            <span class="tag trk">{track-value}</span>
+            <span class="tag file">{file-value}</span>
+          </div>
+        </div>
+        <div class="card-warnings">
+          {warning-content}
+        </div>
+      </div>
+    </template>
+
     <script>
 /**
  * @typedef {object} Issue
