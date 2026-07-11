@@ -94,11 +94,25 @@ const DEMO_HINT = "no data - run refresh or serve over HTTP";
 const DEFAULT_DATA_PATH = "../.beads/issues.jsonl";
 const DEFAULT_REFRESH_INTERVAL = 15000;
 const SOUND_STORAGE_KEY = "bmc-sound";
+const ANNOUNCE_STORAGE_KEY = "bmc-announce";
 const THEME_STORAGE_KEY = "bmc-theme";
 const SEARCH_DEBOUNCE_MS = 150;
 const SOUND_DEFAULTS = Object.freeze({
   enabled: false,
   volume: 0.5
+});
+const DEFAULT_ANNOUNCE_TEMPLATE = "Status report. {ready} ready, {inprogress} in progress, {blocked} blocked. {done} of {all} complete, {pct} percent.";
+const DEFAULT_COMPLETION_TEMPLATE = "Completed: {newlyDone}.";
+const ANNOUNCE_DEFAULTS = Object.freeze({
+  enabled: false,
+  everyMs: 0,
+  everyDone: 0,
+  voice: "",
+  lang: "en-US",
+  rate: 1,
+  pitch: 1,
+  template: DEFAULT_ANNOUNCE_TEMPLATE,
+  completionTemplate: DEFAULT_COMPLETION_TEMPLATE
 });
 
 const warnOnceKeys = new Set();
@@ -247,6 +261,22 @@ function readStoredSoundEnabled(storage = globalThis?.localStorage) {
   return null;
 }
 
+function readStoredAnnounceEnabled(storage = globalThis?.localStorage) {
+  try {
+    const raw = storage?.getItem?.(ANNOUNCE_STORAGE_KEY);
+    if (raw === "1" || raw === "true") {
+      return true;
+    }
+    if (raw === "0" || raw === "false") {
+      return false;
+    }
+  } catch {
+    // Ignore storage failures.
+  }
+
+  return null;
+}
+
 function clampSoundVolume(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -266,6 +296,135 @@ function mergeSoundConfig(soundConfig, storedEnabled = null) {
     enabled,
     volume: clampSoundVolume(input.volume)
   };
+}
+
+function normalizeInterval(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return 0;
+  }
+
+  return Math.floor(numeric);
+}
+
+function clampRate(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return ANNOUNCE_DEFAULTS.rate;
+  }
+
+  return Math.min(10, Math.max(0.1, numeric));
+}
+
+function clampPitch(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return ANNOUNCE_DEFAULTS.pitch;
+  }
+
+  return Math.min(2, Math.max(0, numeric));
+}
+
+function resolveAnnouncementString(strings, key) {
+  return resolveI18nValue(strings, `announce.${key}`)
+    || resolveI18nValue(strings, `announce_${key}`);
+}
+
+function mergeAnnounceConfig(announceConfig, storedEnabled = null, strings = {}) {
+  const input = announceConfig && typeof announceConfig === "object" ? announceConfig : {};
+  const enabled = typeof storedEnabled === "boolean"
+    ? storedEnabled
+    : input.enabled === true;
+  const template = typeof input.template === "string" && input.template.trim()
+    ? input.template
+    : resolveAnnouncementString(strings, "template") || ANNOUNCE_DEFAULTS.template;
+  const completionTemplate = typeof input.completionTemplate === "string" && input.completionTemplate.trim()
+    ? input.completionTemplate
+    : resolveAnnouncementString(strings, "completionTemplate") || ANNOUNCE_DEFAULTS.completionTemplate;
+
+  return {
+    enabled,
+    everyMs: normalizeInterval(input.everyMs),
+    everyDone: normalizeInterval(input.everyDone),
+    voice: typeof input.voice === "string" ? input.voice.trim() : "",
+    lang: typeof input.lang === "string" && input.lang.trim()
+      ? input.lang.trim()
+      : ANNOUNCE_DEFAULTS.lang,
+    rate: clampRate(input.rate),
+    pitch: clampPitch(input.pitch),
+    template,
+    completionTemplate
+  };
+}
+
+function interpolateAnnouncementTemplate(template, values = {}) {
+  const source = typeof template === "string" && template.trim()
+    ? template
+    : DEFAULT_ANNOUNCE_TEMPLATE;
+
+  return source.replace(/\{([^{}]+)\}/g, (_match, key) => {
+    if (!Object.hasOwn(values, key)) {
+      return "";
+    }
+
+    const value = values[key];
+    return value === null || value === undefined ? "" : String(value);
+  });
+}
+
+function buildAnnouncementValues(model, newlyDone = "") {
+  const counts = model?.counts || {};
+
+  return {
+    ready: counts.ready ?? 0,
+    inprogress: counts.inprogress ?? 0,
+    blocked: counts.blocked ?? 0,
+    done: counts.done ?? 0,
+    deferred: counts.deferred ?? 0,
+    all: counts.all ?? 0,
+    pct: model?.pct ?? 0,
+    newlyDone
+  };
+}
+
+function selectAnnouncementVoice(voices, preferredName) {
+  const available = Array.isArray(voices)
+    ? voices.filter((voice) => voice && typeof voice.name === "string")
+    : [];
+
+  if (available.length === 0) {
+    return null;
+  }
+
+  const needle = String(preferredName || "").trim().toLowerCase();
+  if (needle) {
+    const preferred = available.find((voice) => voice.name.toLowerCase().includes(needle));
+    if (preferred) {
+      return preferred;
+    }
+  }
+
+  return available.find((voice) => voice.default === true) || available[0];
+}
+
+function shouldAnnounce({ everyMs = 0, elapsedMs = 0, everyDone = 0, doneCount = 0, changed = false }) {
+  return {
+    timer: everyMs > 0 && changed === true && elapsedMs >= everyMs,
+    completion: everyDone > 0 && doneCount >= everyDone
+  };
+}
+
+function buildAnnouncementSignature(model) {
+  const counts = model?.counts || {};
+  return [
+    counts.ready ?? 0,
+    counts.inprogress ?? 0,
+    counts.blocked ?? 0,
+    counts.done ?? 0,
+    counts.deferred ?? 0,
+    counts.all ?? 0,
+    model?.pct ?? 0
+  ].join("|");
 }
 
 function collectDoneIds(model) {
@@ -445,6 +604,167 @@ function persistSoundEnabled(enabled, storage = globalThis?.localStorage) {
   } catch {
     // Ignore storage failures.
   }
+}
+
+function hasSpeechSynthesisSupport() {
+  return typeof window !== "undefined"
+    && typeof window.speechSynthesis === "object"
+    && typeof window.speechSynthesis?.speak === "function"
+    && typeof window.speechSynthesis?.cancel === "function"
+    && typeof window.SpeechSynthesisUtterance === "function";
+}
+
+function persistAnnounceEnabled(enabled, storage = globalThis?.localStorage) {
+  try {
+    storage?.setItem?.(ANNOUNCE_STORAGE_KEY, enabled ? "1" : "0");
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function syncAnnounceUi(state) {
+  const speakButton = byId("announcebutton");
+  const toggleButton = byId("announcetoggle");
+
+  if (!speakButton && !toggleButton) {
+    return;
+  }
+
+  if (!state.announce.supported) {
+    if (speakButton) {
+      speakButton.hidden = true;
+    }
+    if (toggleButton) {
+      toggleButton.hidden = true;
+    }
+    if (!warnOnceKeys.has("announce-unsupported")) {
+      warnOnceKeys.add("announce-unsupported");
+      console.info("BMC announce disabled: speechSynthesis unavailable");
+    }
+    return;
+  }
+
+  if (speakButton) {
+    speakButton.hidden = false;
+    speakButton.title = "Speak status report";
+  }
+
+  if (toggleButton) {
+    toggleButton.hidden = false;
+    toggleButton.setAttribute("aria-pressed", state.announce.enabled ? "true" : "false");
+    toggleButton.textContent = state.announce.enabled ? "ON" : "OFF";
+    toggleButton.title = state.announce.enabled ? "Voice announcer on" : "Voice announcer off";
+  }
+}
+
+function cancelAnnouncement(state) {
+  if (!state.announce.supported) {
+    return;
+  }
+
+  try {
+    window.speechSynthesis.cancel();
+  } catch {
+    // Ignore speech cancellation failures.
+  }
+}
+
+function buildNewlyDoneText(state, newlyDoneIds) {
+  const ids = Array.isArray(newlyDoneIds) ? newlyDoneIds.filter((id) => typeof id === "string" && id) : [];
+  if (ids.length === 0) {
+    return "";
+  }
+
+  const titles = ids.slice(0, 3).map((id) => {
+    const beadLabel = state.model?.beads?.[id]?.label;
+    const issueTitle = state.issuesById.get(id)?.title;
+    return beadLabel || issueTitle || id;
+  });
+
+  return titles.join(", ");
+}
+
+function buildAnnouncementText(state, { newlyDoneIds = [], completion = false } = {}) {
+  const newlyDone = buildNewlyDoneText(state, newlyDoneIds);
+  const values = buildAnnouncementValues(state.model, newlyDone);
+  const summary = interpolateAnnouncementTemplate(state.announce.template, values).trim();
+
+  if (!completion) {
+    return summary;
+  }
+
+  const prefix = interpolateAnnouncementTemplate(state.announce.completionTemplate, values).trim();
+  return [prefix, summary].filter(Boolean).join(" ");
+}
+
+function markAnnouncementBaseline(state) {
+  state.announce.lastSignature = buildAnnouncementSignature(state.model);
+  state.announce.lastAt = state.now();
+  state.announce.baselined = true;
+}
+
+function recordAnnouncement(state) {
+  state.announce.lastSignature = buildAnnouncementSignature(state.model);
+  state.announce.lastAt = state.now();
+  state.announce.baselined = true;
+}
+
+function speakAnnouncement(state, options = {}) {
+  if (!state.announce.supported || !state.model) {
+    return false;
+  }
+
+  const text = buildAnnouncementText(state, options);
+  if (!text) {
+    return false;
+  }
+
+  const utterance = new window.SpeechSynthesisUtterance(text);
+  utterance.lang = state.announce.lang;
+  utterance.rate = state.announce.rate;
+  utterance.pitch = state.announce.pitch;
+
+  const selectedVoice = selectAnnouncementVoice(
+    window.speechSynthesis.getVoices?.() || [],
+    state.announce.voice
+  );
+  if (selectedVoice) {
+    utterance.voice = selectedVoice;
+  }
+
+  cancelAnnouncement(state);
+  window.speechSynthesis.speak(utterance);
+  recordAnnouncement(state);
+  return true;
+}
+
+function maybeAnnounceOnTimer(state) {
+  if (!state.announce.enabled || !state.announce.supported || !state.announce.baselined) {
+    return;
+  }
+
+  const decision = shouldAnnounce({
+    everyMs: state.announce.everyMs,
+    elapsedMs: state.now() - state.announce.lastAt,
+    changed: buildAnnouncementSignature(state.model) !== state.announce.lastSignature
+  });
+
+  if (decision.timer) {
+    speakAnnouncement(state);
+  }
+}
+
+function syncAnnounceTimer(state) {
+  window.clearInterval(state.announce.timerId);
+  state.announce.timerId = 0;
+
+  if (!state.announce.enabled || !state.announce.supported || state.announce.everyMs <= 0) {
+    return;
+  }
+
+  state.announce.timerId = window.setInterval(() => {
+    maybeAnnounceOnTimer(state);
+  }, Math.max(250, state.announce.everyMs));
 }
 
 function resolveI18nValue(strings, key) {
@@ -1374,6 +1694,16 @@ function buildState(config) {
       supported: hasAudioContextSupport(),
       context: null
     },
+    announce: {
+      ...config.announce,
+      supported: hasSpeechSynthesisSupport(),
+      baselined: false,
+      lastSignature: "",
+      lastAt: 0,
+      completedSince: 0,
+      pendingDoneIds: [],
+      timerId: 0
+    },
     timerId: 0,
     lastUpdatedLabel: "never",
     now: () => Date.now()
@@ -1465,6 +1795,7 @@ async function refresh(state, { manual }) {
   const source = await resolveData(state.config, state);
   const previousDoneIds = state.previousDoneIds;
   const previousPct = state.model?.pct ?? 0;
+  const wasBaselined = state.announce.baselined;
   state.source = source;
   state.issuesById = new Map(
     source.issues
@@ -1482,6 +1813,10 @@ async function refresh(state, { manual }) {
   setSourceUi(source, state);
   syncAutoRefresh(state);
   state.previousPct = previousPct;
+
+  if (!wasBaselined) {
+    markAnnouncementBaseline(state);
+  }
 
   if (previousDoneIds !== null && newlyDoneIds.length > 0) {
     state.emitBeadsCompleted(newlyDoneIds);
@@ -1556,6 +1891,54 @@ function bindSoundToggle(state) {
   });
 }
 
+function bindAnnounceButton(state) {
+  const button = byId("announcebutton");
+  if (!button) {
+    return;
+  }
+
+  syncAnnounceUi(state);
+  if (!state.announce.supported) {
+    return;
+  }
+
+  button.addEventListener("click", () => {
+    const spoken = speakAnnouncement(state);
+    if (spoken) {
+      showToast("Status report spoken");
+    }
+  });
+}
+
+function bindAnnounceToggle(state) {
+  const button = byId("announcetoggle");
+  if (!button) {
+    return;
+  }
+
+  syncAnnounceUi(state);
+  if (!state.announce.supported) {
+    return;
+  }
+
+  button.addEventListener("click", () => {
+    state.announce.enabled = !state.announce.enabled;
+    persistAnnounceEnabled(state.announce.enabled);
+
+    if (!state.announce.enabled) {
+      state.announce.completedSince = 0;
+      state.announce.pendingDoneIds = [];
+      cancelAnnouncement(state);
+    } else if (!state.announce.baselined) {
+      markAnnouncementBaseline(state);
+    }
+
+    syncAnnounceUi(state);
+    syncAnnounceTimer(state);
+    showToast(state.announce.enabled ? "Voice announcer armed" : "Voice announcer muted");
+  });
+}
+
 function applyConfig(config, state) {
   if (config.title) {
     document.title = config.title;
@@ -1571,6 +1954,8 @@ function readConfig() {
     ? window.BMC_CONFIG
     : {};
   const storedSoundEnabled = readStoredSoundEnabled();
+  const rawStrings = config.strings && typeof config.strings === "object" ? config.strings : {};
+  const storedAnnounceEnabled = readStoredAnnounceEnabled();
 
   return {
     title: config.title || "",
@@ -1580,7 +1965,8 @@ function readConfig() {
       ? Number(config.refreshInterval)
       : DEFAULT_REFRESH_INTERVAL,
     sound: mergeSoundConfig(config.sound, storedSoundEnabled),
-    strings: config.strings && typeof config.strings === "object" ? config.strings : {},
+    announce: mergeAnnounceConfig(config.announce, storedAnnounceEnabled, rawStrings),
+    strings: rawStrings,
     metaPath: config.metaPath || ""
   };
 }
@@ -1602,10 +1988,38 @@ function init() {
   bindSearch(state);
   bindRefresh(state);
   bindCopy();
+  bindAnnounceButton(state);
+  bindAnnounceToggle(state);
   bindSoundToggle(state);
   bindThemeToggle();
+  syncAnnounceTimer(state);
   state.onBeadsCompleted((newlyDoneIds) => {
     playCompletionChime(state, newlyDoneIds);
+  });
+  state.onBeadsCompleted((newlyDoneIds) => {
+    if (!state.announce.enabled || !state.announce.supported) {
+      return;
+    }
+
+    state.announce.completedSince += newlyDoneIds.length;
+    state.announce.pendingDoneIds.push(...newlyDoneIds);
+
+    const decision = shouldAnnounce({
+      everyDone: state.announce.everyDone,
+      doneCount: state.announce.completedSince,
+      changed: true
+    });
+
+    if (!decision.completion) {
+      return;
+    }
+
+    speakAnnouncement(state, {
+      completion: true,
+      newlyDoneIds: state.announce.pendingDoneIds
+    });
+    state.announce.completedSince = 0;
+    state.announce.pendingDoneIds = [];
   });
 
   refresh(state, { manual: false }).catch((error) => {
@@ -1631,22 +2045,29 @@ function resolveSnapshotPayload() {
 if (typeof globalThis !== "undefined") {
   globalThis.BMC_PANEL_HELPERS = {
     applyCardFilters,
+    buildAnnouncementSignature,
+    buildAnnouncementValues,
     buildCompletionChime,
     collectDoneIds,
     decideSourceMode,
     diffDoneIds,
     formatSnapshotAge,
+    interpolateAnnouncementTemplate,
     getTelemetryAgeBucket,
     init,
     mapVerificationBadge,
+    mergeAnnounceConfig,
     mergeSoundConfig,
     matchesSearch,
     nextTheme,
     parseAttemptValue,
     parseLockTelemetry,
     readInlineMeta,
+    readStoredAnnounceEnabled,
     readStoredSoundEnabled,
     resolveSnapshotPayload,
+    selectAnnouncementVoice,
+    shouldAnnounce,
     summarizeOrchestrator,
     snapshotIssues
   };
