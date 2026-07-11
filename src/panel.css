@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
+/* zero-dep policy: no external fonts — system stack only (ui-monospace covers the HUD readouts) */
 
 :root {
   --bmc-bg: #040814;
@@ -89,7 +89,7 @@ body {
   background-color: var(--bmc-bg);
   background-image: var(--bmc-bg-gradient);
   color: var(--bmc-text-primary);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
@@ -202,7 +202,7 @@ footer.hud-boot { animation-delay: 0.3s; }
 }
 
 #ringpct {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 1.2rem;
   font-weight: bold;
   color: var(--bmc-accent);
@@ -220,7 +220,7 @@ footer.hud-boot { animation-delay: 0.3s; }
   background: rgba(var(--bmc-accent-rgb), 0.05);
   border: 1px solid var(--bmc-card-border);
   color: var(--bmc-text-secondary);
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   padding: 0.4rem 0.8rem;
   font-size: 0.8rem;
   cursor: pointer;
@@ -274,7 +274,7 @@ main {
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid var(--bmc-card-border);
   color: var(--bmc-text-primary);
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   padding: 0.4rem 0.8rem;
   border-radius: 3px;
   min-width: 220px;
@@ -291,7 +291,7 @@ main {
   background: rgba(var(--bmc-accent-rgb), 0.05);
   border: 1px solid var(--bmc-card-border);
   color: var(--bmc-accent);
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   padding: 0.4rem 0.8rem;
   border-radius: 3px;
   cursor: pointer;
@@ -343,7 +343,7 @@ main {
 }
 
 .auto-label {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 0.85rem;
   color: var(--bmc-text-secondary);
   cursor: pointer;
@@ -354,7 +354,7 @@ main {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 0.8rem;
   color: var(--bmc-text-secondary);
   background: rgba(255, 255, 255, 0.03);
@@ -369,7 +369,7 @@ main {
 }
 
 #updtxt {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 0.8rem;
   color: var(--bmc-muted);
 }
@@ -397,7 +397,7 @@ main {
 .wave-badge {
   background: var(--bmc-accent);
   color: var(--bmc-bg);
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-weight: bold;
   padding: 0.25rem 0.9rem;
   font-size: 0.9rem;
@@ -406,7 +406,7 @@ main {
 }
 
 .wave-title {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   text-transform: uppercase;
   letter-spacing: 2px;
   font-size: 1.05rem;
@@ -522,7 +522,7 @@ main {
 }
 
 .id {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 0.9rem;
   font-weight: bold;
   color: var(--card-accent);
@@ -530,7 +530,7 @@ main {
 }
 
 .stpill {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 0.65rem;
   font-weight: bold;
   text-transform: uppercase;
@@ -547,7 +547,7 @@ main {
 .stpill-deferred { color: var(--bmc-muted); background: rgba(100, 116, 139, 0.1); }
 
 .think {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 0.65rem;
   padding: 2px 6px;
   border-radius: 2px;
@@ -597,11 +597,11 @@ main {
 
 .who .label {
   color: var(--bmc-muted);
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
 }
 
 .who .value {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   color: var(--bmc-text-primary);
 }
 
@@ -611,7 +611,7 @@ main {
 }
 
 .tag {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 0.65rem;
   padding: 1px 5px;
   border-radius: 2px;
@@ -633,7 +633,7 @@ main {
 }
 
 .warn {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 0.75rem;
   color: #ef4444;
   background: rgba(239, 68, 68, 0.1);
@@ -647,7 +647,7 @@ main {
 }
 
 .blk {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 0.75rem;
   color: #ef4444;
   background: rgba(239, 68, 68, 0.05);
@@ -665,7 +665,7 @@ main {
   box-shadow: 0 0 15px var(--bmc-accent-glow);
   padding: 0.8rem 1.2rem;
   border-radius: 4px;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 0.85rem;
   color: var(--bmc-text-primary);
   display: flex;
@@ -684,7 +684,7 @@ main {
   margin-top: auto;
   border-top: 1px solid var(--bmc-card-border);
   padding-top: 1.5rem;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   font-size: 0.8rem;
   color: var(--bmc-muted);
   text-align: center;
@@ -715,7 +715,7 @@ main {
 .orchestrator-summary {
   cursor: pointer;
   list-style: none;
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   letter-spacing: 0.14em;
   color: var(--bmc-accent);
   font-size: 0.85rem;
@@ -740,7 +740,7 @@ main {
 
 .telemetry-chip,
 .verify-badge {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   border-radius: 999px;
@@ -792,7 +792,7 @@ main {
 }
 
 .orchestrator-empty {
-  font-family: 'Share Tech Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   color: var(--bmc-muted);
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -823,6 +823,52 @@ main {
   border-color: rgba(148, 163, 184, 0.5);
   background: transparent;
   border-style: dashed;
+}
+
+/* ===== bmc-12 ===== */
+
+.hud-btn-mini {
+  min-width: 5.5rem;
+  padding-inline: 0.7rem;
+}
+
+#soundtoggle {
+  position: relative;
+  letter-spacing: 0.12em;
+}
+
+#soundtoggle::before {
+  content: "SND";
+  margin-right: 0.45rem;
+  opacity: 0.72;
+}
+
+#soundtoggle[aria-pressed="true"] {
+  border-color: rgba(154, 230, 255, 0.75);
+  color: #d9f8ff;
+  background:
+    linear-gradient(180deg, rgba(123, 227, 255, 0.22), rgba(26, 58, 86, 0.16)),
+    rgba(var(--bmc-accent-rgb), 0.08);
+  box-shadow:
+    inset 0 0 12px rgba(154, 230, 255, 0.12),
+    0 0 14px rgba(123, 227, 255, 0.16);
+}
+
+#soundtoggle[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: #b7f6ff;
+  box-shadow: 0 0 12px rgba(183, 246, 255, 0.8);
+  transform: translateY(-50%);
+}
+
+#soundtoggle[hidden] {
+  display: none;
 }
 
 .attempt-tag {

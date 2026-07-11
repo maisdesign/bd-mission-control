@@ -93,8 +93,13 @@ function applyCardFilters(cards, filters) {
 const DEMO_HINT = "no data - run refresh or serve over HTTP";
 const DEFAULT_DATA_PATH = "../.beads/issues.jsonl";
 const DEFAULT_REFRESH_INTERVAL = 15000;
+const SOUND_STORAGE_KEY = "bmc-sound";
 const THEME_STORAGE_KEY = "bmc-theme";
 const SEARCH_DEBOUNCE_MS = 150;
+const SOUND_DEFAULTS = Object.freeze({
+  enabled: false,
+  volume: 0.5
+});
 
 const warnOnceKeys = new Set();
 
@@ -218,6 +223,227 @@ function setText(node, value) {
 function setDisplay(node, visible) {
   if (node) {
     node.style.display = visible ? "" : "none";
+  }
+}
+
+function hasAudioContextSupport() {
+  return typeof window !== "undefined"
+    && (typeof window.AudioContext === "function" || typeof window.webkitAudioContext === "function");
+}
+
+function readStoredSoundEnabled(storage = globalThis?.localStorage) {
+  try {
+    const raw = storage?.getItem?.(SOUND_STORAGE_KEY);
+    if (raw === "1" || raw === "true") {
+      return true;
+    }
+    if (raw === "0" || raw === "false") {
+      return false;
+    }
+  } catch {
+    // Ignore storage failures.
+  }
+
+  return null;
+}
+
+function clampSoundVolume(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return SOUND_DEFAULTS.volume;
+  }
+
+  return Math.min(1, Math.max(0, numeric));
+}
+
+function mergeSoundConfig(soundConfig, storedEnabled = null) {
+  const input = soundConfig && typeof soundConfig === "object" ? soundConfig : {};
+  const enabled = typeof storedEnabled === "boolean"
+    ? storedEnabled
+    : input.enabled === true;
+
+  return {
+    enabled,
+    volume: clampSoundVolume(input.volume)
+  };
+}
+
+function collectDoneIds(model) {
+  const doneIds = [];
+
+  for (const [id, bead] of Object.entries(model?.beads || {})) {
+    if (bead?.state === "done") {
+      doneIds.push(id);
+    }
+  }
+
+  doneIds.sort();
+  return doneIds;
+}
+
+function diffDoneIds(previousDoneIds, nextDoneIds) {
+  if (!Array.isArray(previousDoneIds) || previousDoneIds.length === 0) {
+    return [];
+  }
+
+  const knownDoneIds = new Set(previousDoneIds);
+  return nextDoneIds.filter((id) => !knownDoneIds.has(id));
+}
+
+function buildCompletionChime({ now = 0, volume = SOUND_DEFAULTS.volume, nextPct = 0, previousPct = 0 }) {
+  const gain = clampSoundVolume(volume);
+  const resolved = nextPct >= 100 && previousPct < 100;
+  const baseEnvelope = { attack: 0.006, decay: 0.24 };
+
+  if (resolved) {
+    return [
+      { frequency: 880, start: now, duration: 0.1, gain: gain * 0.16, type: "triangle", ...baseEnvelope },
+      { frequency: 1320, start: now + 0.045, duration: 0.12, gain: gain * 0.12, type: "sine", ...baseEnvelope },
+      { frequency: 1760, start: now + 0.12, duration: 0.2, gain: gain * 0.14, type: "triangle", attack: 0.008, decay: 0.3 }
+    ];
+  }
+
+  return [
+    { frequency: 880, start: now, duration: 0.11, gain: gain * 0.16, type: "triangle", ...baseEnvelope },
+    { frequency: 1320, start: now + 0.038, duration: 0.16, gain: gain * 0.11, type: "sine", attack: 0.004, decay: 0.26 }
+  ];
+}
+
+function createCompletionEvents() {
+  const listeners = new Set();
+
+  return {
+    onBeadsCompleted(listener) {
+      if (typeof listener !== "function") {
+        return () => {};
+      }
+
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    emit(newlyDoneIds) {
+      if (!Array.isArray(newlyDoneIds) || newlyDoneIds.length === 0) {
+        return;
+      }
+
+      for (const listener of listeners) {
+        listener([...newlyDoneIds]);
+      }
+    }
+  };
+}
+
+function getAudioContextCtor() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.AudioContext || window.webkitAudioContext || null;
+}
+
+function ensureAudioContext(state) {
+  if (!state.sound.supported) {
+    return null;
+  }
+
+  if (state.sound.context) {
+    return state.sound.context;
+  }
+
+  const AudioContextCtor = getAudioContextCtor();
+  if (!AudioContextCtor) {
+    return null;
+  }
+
+  state.sound.context = new AudioContextCtor();
+  return state.sound.context;
+}
+
+async function unlockAudioContext(state) {
+  const context = ensureAudioContext(state);
+  if (!context || typeof context.resume !== "function") {
+    return false;
+  }
+
+  if (context.state === "running") {
+    return true;
+  }
+
+  try {
+    await context.resume();
+    return context.state === "running";
+  } catch (error) {
+    console.info("BMC sound resume skipped", error);
+    return false;
+  }
+}
+
+function playCompletionChime(state, newlyDoneIds) {
+  if (!state.sound.enabled || !state.sound.supported || newlyDoneIds.length === 0) {
+    return;
+  }
+
+  const context = ensureAudioContext(state);
+  if (!context || context.state !== "running") {
+    return;
+  }
+
+  const notes = buildCompletionChime({
+    now: context.currentTime + 0.01,
+    volume: state.sound.volume,
+    previousPct: state.previousPct,
+    nextPct: state.model?.pct ?? 0
+  });
+
+  for (const note of notes) {
+    const oscillator = context.createOscillator();
+    const gainNode = context.createGain();
+    const start = note.start;
+    const peakAt = start + note.attack;
+    const stopAt = start + note.duration;
+
+    oscillator.type = note.type;
+    oscillator.frequency.setValueAtTime(note.frequency, start);
+
+    gainNode.gain.setValueAtTime(0.0001, start);
+    gainNode.gain.linearRampToValueAtTime(note.gain, peakAt);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, stopAt);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(context.destination);
+    oscillator.start(start);
+    oscillator.stop(stopAt + 0.02);
+  }
+}
+
+function syncSoundToggleUi(state) {
+  const button = byId("soundtoggle");
+  if (!button) {
+    return;
+  }
+
+  if (!state.sound.supported) {
+    button.hidden = true;
+    if (!warnOnceKeys.has("sound-unsupported")) {
+      warnOnceKeys.add("sound-unsupported");
+      console.info("BMC sound disabled: AudioContext unavailable");
+    }
+    return;
+  }
+
+  button.hidden = false;
+  button.setAttribute("aria-pressed", state.sound.enabled ? "true" : "false");
+  button.textContent = state.sound.enabled ? "ON" : "OFF";
+  button.title = state.sound.enabled ? "Completion chime on" : "Completion chime off";
+}
+
+function persistSoundEnabled(enabled, storage = globalThis?.localStorage) {
+  try {
+    storage?.setItem?.(SOUND_STORAGE_KEY, enabled ? "1" : "0");
+  } catch {
+    // Ignore storage failures.
   }
 }
 
@@ -1122,6 +1348,8 @@ async function resolveData(config, state) {
 }
 
 function buildState(config) {
+  const completionEvents = createCompletionEvents();
+
   return {
     config,
     filters: {
@@ -1136,6 +1364,16 @@ function buildState(config) {
     model: null,
     source: { mode: "demo", path: "inline demo", issues: DEMO_ISSUES, hint: DEMO_HINT },
     orchestrator: null,
+    onBeadsCompleted: completionEvents.onBeadsCompleted,
+    emitBeadsCompleted: completionEvents.emit,
+    previousDoneIds: null,
+    previousPct: 0,
+    sound: {
+      enabled: config.sound.enabled,
+      volume: config.sound.volume,
+      supported: hasAudioContextSupport(),
+      context: null
+    },
     timerId: 0,
     lastUpdatedLabel: "never",
     now: () => Date.now()
@@ -1225,6 +1463,8 @@ function syncAutoRefresh(state) {
 async function refresh(state, { manual }) {
   const meta = await loadMeta(state.config);
   const source = await resolveData(state.config, state);
+  const previousDoneIds = state.previousDoneIds;
+  const previousPct = state.model?.pct ?? 0;
   state.source = source;
   state.issuesById = new Map(
     source.issues
@@ -1232,12 +1472,22 @@ async function refresh(state, { manual }) {
       .map((issue) => [issue.id, issue])
   );
   state.model = deriveModel(source.issues, meta, { strings: state.config.strings });
+  const nextDoneIds = collectDoneIds(state.model);
+  const newlyDoneIds = diffDoneIds(previousDoneIds, nextDoneIds);
+  state.previousDoneIds = nextDoneIds;
   state.trackOptions = computeTrackOptions(state.model);
   state.orchestrator = summarizeOrchestrator(source.orchestrator, state.now());
   stampLastUpdated(state);
   render(state);
   setSourceUi(source, state);
   syncAutoRefresh(state);
+  state.previousPct = previousPct;
+
+  if (previousDoneIds !== null && newlyDoneIds.length > 0) {
+    state.emitBeadsCompleted(newlyDoneIds);
+  }
+
+  state.previousPct = state.model?.pct ?? 0;
 
   if (manual) {
     showToast(`Refresh complete: ${source.mode}`);
@@ -1286,6 +1536,26 @@ function bindThemeToggle() {
   });
 }
 
+function bindSoundToggle(state) {
+  const button = byId("soundtoggle");
+  if (!button) {
+    return;
+  }
+
+  syncSoundToggleUi(state);
+  if (!state.sound.supported) {
+    return;
+  }
+
+  button.addEventListener("click", async () => {
+    await unlockAudioContext(state);
+    state.sound.enabled = !state.sound.enabled;
+    persistSoundEnabled(state.sound.enabled);
+    syncSoundToggleUi(state);
+    showToast(state.sound.enabled ? "Completion chime armed" : "Completion chime muted");
+  });
+}
+
 function applyConfig(config, state) {
   if (config.title) {
     document.title = config.title;
@@ -1300,6 +1570,7 @@ function readConfig() {
   const config = window.BMC_CONFIG && typeof window.BMC_CONFIG === "object"
     ? window.BMC_CONFIG
     : {};
+  const storedSoundEnabled = readStoredSoundEnabled();
 
   return {
     title: config.title || "",
@@ -1308,6 +1579,7 @@ function readConfig() {
     refreshInterval: Number(config.refreshInterval) > 0
       ? Number(config.refreshInterval)
       : DEFAULT_REFRESH_INTERVAL,
+    sound: mergeSoundConfig(config.sound, storedSoundEnabled),
     strings: config.strings && typeof config.strings === "object" ? config.strings : {},
     metaPath: config.metaPath || ""
   };
@@ -1330,7 +1602,11 @@ function init() {
   bindSearch(state);
   bindRefresh(state);
   bindCopy();
+  bindSoundToggle(state);
   bindThemeToggle();
+  state.onBeadsCompleted((newlyDoneIds) => {
+    playCompletionChime(state, newlyDoneIds);
+  });
 
   refresh(state, { manual: false }).catch((error) => {
     console.error("BMC init failed", error);
@@ -1355,16 +1631,21 @@ function resolveSnapshotPayload() {
 if (typeof globalThis !== "undefined") {
   globalThis.BMC_PANEL_HELPERS = {
     applyCardFilters,
+    buildCompletionChime,
+    collectDoneIds,
     decideSourceMode,
+    diffDoneIds,
     formatSnapshotAge,
     getTelemetryAgeBucket,
     init,
     mapVerificationBadge,
+    mergeSoundConfig,
     matchesSearch,
     nextTheme,
     parseAttemptValue,
     parseLockTelemetry,
     readInlineMeta,
+    readStoredSoundEnabled,
     resolveSnapshotPayload,
     summarizeOrchestrator,
     snapshotIssues
