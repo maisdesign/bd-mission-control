@@ -4,4 +4,4 @@ window.BMC_CONFIG = {
     search_placeholder: "Filter telemetry...",
     footer_text: "MISSION CONTROL HUD &bull; demo data = this repo's own bead tracker"
   }
-};
+  };
