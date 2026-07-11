@@ -88,7 +88,8 @@ test('refresh scripts generate equivalent string-payload snapshots', async () =>
 
     assert.equal(shSnapshot.generated_at.length > 0, true);
     assert.equal(shSource.endsWith('/.beads/issues.jsonl'), true);
-    assert.equal(shIssues.length, 11);
+    // live tracker export: the count grows with the project — assert non-empty, not a snapshot-in-time number
+    assert.equal(shIssues.length > 0, true);
     assert.match(shText, /\\u[0-9a-fA-F]{4}/);
     assert.doesNotMatch(shText, /\u0001/);
 
@@ -100,7 +101,7 @@ test('refresh scripts generate equivalent string-payload snapshots', async () =>
 
       assert.equal(psSnapshot.generated_at.length > 0, true);
       assert.equal(psSource, shSource);
-      assert.equal(psIssues.length, 11);
+      assert.equal(psIssues.length > 0, true);
       assert.equal(psIssues.length, shIssues.length);
       assert.match(psText, /\\u[0-9a-fA-F]{4}/);
       assert.doesNotMatch(psText, /\u0001/);
@@ -113,7 +114,7 @@ test('refresh scripts generate equivalent string-payload snapshots', async () =>
 
     assert.equal(psSnapshot.generated_at.length > 0, true);
     assert.equal(psSource.endsWith('/.beads/issues.jsonl'), true);
-    assert.equal(psIssues.length, 11);
+    assert.equal(psIssues.length > 0, true);
     assert.match(psText, /\\u[0-9a-fA-F]{4}/);
     assert.doesNotMatch(psText, /\u0001/);
   }
