@@ -15,7 +15,8 @@ EOF
 }
 
 path_to_posix() {
-  case $1 in
+  local drive rest
+  case "$1" in
     [A-Za-z]:\\*)
       drive=$(printf '%s' "$1" | cut -c1 | tr 'A-Z' 'a-z')
       rest=$(printf '%s' "$1" | cut -c3- | tr '\\' '/')
@@ -33,12 +34,14 @@ path_to_posix() {
 }
 
 resolve_existing_path() {
-  path=$(path_to_posix "$1")
+  local path
+  path="$(path_to_posix "$1")"
   cd "$path" 2>/dev/null && pwd -P
 }
 
 trim_trailing_slashes() {
-  path=$1
+  local path
+  path="$1"
   while [ "${path%/}" != "$path" ] && [ "$path" != "/" ]; do
     path=${path%/}
   done
@@ -46,8 +49,9 @@ trim_trailing_slashes() {
 }
 
 normalize_prefix() {
-  path=$(path_to_posix "$1")
-  if resolved=$(cd "$path" 2>/dev/null && pwd -P); then
+  local path resolved
+  path="$(path_to_posix "$1")"
+  if resolved="$(cd "$path" 2>/dev/null && pwd -P)"; then
     trim_trailing_slashes "$resolved"
     return 0
   fi
@@ -55,9 +59,10 @@ normalize_prefix() {
 }
 
 path_inside_root() {
-  path=$(normalize_prefix "$1")
-  root=$(normalize_prefix "$2")
-  case $path in
+  local path root
+  path="$(normalize_prefix "$1")"
+  root="$(normalize_prefix "$2")"
+  case "$path" in
     "$root")
       return 0
       ;;
@@ -76,7 +81,7 @@ assert_inside_root() {
 }
 
 assert_no_git_segment() {
-  case $1 in
+  case "$1" in
     */.git|*/.git/*|.git|.git/*)
       printf '%s\n' "error: refusing to write inside a .git directory: $1" >&2
       exit 1
@@ -85,19 +90,20 @@ assert_no_git_segment() {
 }
 
 assert_no_symlink_chain() {
-  path=$1
+  local path parent next
+  path="$1"
   if [ -L "$path" ]; then
     printf '%s\n' "error: refusing to write through symlink: $path" >&2
     exit 1
   fi
 
-  parent=$(dirname -- "$path")
+  parent="$(dirname -- "$path")"
   while [ -n "$parent" ] && [ "$parent" != "/" ] && [ "$parent" != "." ]; do
     if [ -L "$parent" ]; then
       printf '%s\n' "error: refusing to write through symlink parent: $parent" >&2
       exit 1
     fi
-    next=$(dirname -- "$parent")
+    next="$(dirname -- "$parent")"
     if [ "$next" = "$parent" ]; then
       break
     fi
@@ -106,9 +112,10 @@ assert_no_symlink_chain() {
 }
 
 ensure_dir_path() {
-  root=$1
-  relative=$2
-  current=$root
+  local root relative current old_ifs part parent next
+  root="$1"
+  relative="$2"
+  current="$root"
   if [ -z "$relative" ] || [ "$relative" = "." ]; then
     assert_no_git_segment "$current"
     assert_no_symlink_chain "$current"
@@ -119,36 +126,51 @@ ensure_dir_path() {
 
   old_ifs=$IFS
   IFS=/
-  set -- $relative
-  IFS=$old_ifs
-  for part do
-    case $part in
-      ''|.)
-        continue
+  set -f
+  while :; do
+    case "$relative" in
+      */*)
+        part=${relative%%/*}
+        relative="${relative#*/}"
         ;;
-      ..)
-        printf '%s\n' "error: refusing path traversal in -Dir: $relative" >&2
-        exit 1
-        ;;
-      .git)
-        printf '%s\n' "error: refusing to write inside a .git directory: $relative" >&2
-        exit 1
+      *)
+        part="$relative"
+        relative=
         ;;
     esac
+    if [ -z "$part" ] || [ "$part" = "." ]; then
+      if [ -z "$relative" ]; then
+        break
+      fi
+      continue
+    fi
+    if [ "$part" = ".." ]; then
+      printf '%s\n' "error: refusing path traversal in -Dir: $relative" >&2
+      exit 1
+    fi
+    if [ "$part" = ".git" ]; then
+      printf '%s\n' "error: refusing to write inside a .git directory: $relative" >&2
+      exit 1
+    fi
 
-    current=$current/$part
+    current="$current/$part"
     assert_no_git_segment "$current"
     assert_inside_root "$current" "$root"
-    if [ -e "$current" ]; then
+    if [ -e "$current" ] || [ -L "$current" ]; then
+      assert_no_symlink_chain "$current"
       if [ ! -d "$current" ]; then
         printf '%s\n' "error: path exists and is not a directory: $current" >&2
         exit 1
       fi
-      assert_no_symlink_chain "$current"
     else
       mkdir "$current" || exit 1
     fi
+    if [ -z "$relative" ]; then
+      break
+    fi
   done
+  set +f
+  IFS=$old_ifs
 
   assert_no_git_segment "$current"
   assert_no_symlink_chain "$current"
@@ -157,15 +179,17 @@ ensure_dir_path() {
 }
 
 file_bytes_equal() {
-  left=$1
-  right=$2
+  local left right
+  left="$1"
+  right="$2"
   cmp -s -- "$left" "$right"
 }
 
 write_atomic_copy() {
-  source=$1
-  destination=$2
-  dest_dir=$(dirname -- "$destination")
+  local source destination dest_dir temp
+  source="$1"
+  destination="$2"
+  dest_dir="$(dirname -- "$destination")"
   if [ ! -d "$dest_dir" ]; then
     mkdir -p -- "$dest_dir" || exit 1
   fi
@@ -193,14 +217,44 @@ write_atomic_copy() {
   mv -f -- "$temp" "$destination"
 }
 
+write_vendored_copy() {
+  local source destination label same_bytes
+  source="$1"
+  destination="$2"
+  label="$3"
+  if [ -e "$destination" ] || [ -L "$destination" ]; then
+    assert_no_git_segment "$destination"
+    assert_no_symlink_chain "$destination"
+    assert_inside_root "$destination" "$TARGET_ROOT"
+    same_bytes=0
+    if file_bytes_equal "$source" "$destination"; then
+      same_bytes=1
+    fi
+    if [ "$same_bytes" -eq 0 ] && [ "$UPDATE" -eq 0 ] && [ "$FORCE" -eq 0 ]; then
+      usage >&2
+      printf '%s\n' "error: existing $label differs from source: $destination" >&2
+      printf '%s\n' 'hint: rerun with -Update to replace the panel and refresh scripts' >&2
+      exit 1
+    fi
+    if [ "$FORCE" -eq 1 ] && [ "$same_bytes" -eq 0 ]; then
+      printf '%s\n' "WARNING: -Force is overwriting a locally modified $label: $destination" >&2
+    fi
+  fi
+
+  write_atomic_copy "$source" "$destination"
+}
+
 write_config_stub() {
-  config_path=$1
-  target_base=$2
-  if [ -e "$config_path" ]; then
+  local config_path target_base dest_dir temp stub
+  config_path="$1"
+  target_base="$2"
+  if [ -e "$config_path" ] || [ -L "$config_path" ]; then
+    assert_no_git_segment "$config_path"
+    assert_no_symlink_chain "$config_path"
     return 0
   fi
 
-  dest_dir=$(dirname -- "$config_path")
+  dest_dir="$(dirname -- "$config_path")"
   if [ ! -d "$dest_dir" ]; then
     mkdir -p -- "$dest_dir" || exit 1
   fi
@@ -218,7 +272,7 @@ write_config_stub() {
     exit 1
   fi
 
-  stub=$(cat <<EOF
+  stub="$(cat <<EOF
 window.BMC_CONFIG = {
   title: "$target_base mission control",
   dataPath: "../.beads/issues.jsonl",
@@ -231,7 +285,7 @@ window.BMC_CONFIG = {
   // metaPath: "./orchestration.meta.json"
 };
 EOF
-)
+)"
 
   (
     set -C
@@ -240,12 +294,18 @@ EOF
     exit 1
   }
 
+  if [ -e "$config_path" ] || [ -L "$config_path" ]; then
+    printf '%s\n' "error: refusing to overwrite existing config: $config_path" >&2
+    exit 1
+  fi
+
   mv -f -- "$temp" "$config_path"
 }
 
 get_panel_version() {
-  panel=$1
-  version=$(grep -m1 'MISSION CONTROL HUD v' "$panel" | sed 's/.*MISSION CONTROL HUD v\([0-9][0-9.]*\).*/\1/')
+  local panel version
+  panel="$1"
+  version="$(grep -m1 'MISSION CONTROL HUD v' "$panel" | sed 's/.*MISSION CONTROL HUD v\([0-9][0-9.]*\).*/\1/')"
   if [ -z "$version" ]; then
     printf '%s\n' "error: could not read version stamp from panel: $panel" >&2
     exit 1
@@ -253,8 +313,8 @@ get_panel_version() {
   printf '%s\n' "$version"
 }
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
-REPO_ROOT=$(dirname -- "$SCRIPT_DIR")
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+REPO_ROOT="$(dirname -- "$SCRIPT_DIR")"
 SOURCE_PANEL=$REPO_ROOT/dist/orchestration.html
 SOURCE_REFRESH_PS1=$SCRIPT_DIR/refresh.ps1
 SOURCE_REFRESH_SH=$SCRIPT_DIR/refresh.sh
@@ -342,14 +402,14 @@ fi
 
 assert_inside_root "$TARGET_ROOT" "$TARGET_ROOT"
 
-case $DIR in
+case "$DIR" in
   /*)
     printf '%s\n' "error: refusing rooted -Dir value: $DIR" >&2
     exit 1
     ;;
 esac
 
-case $DIR in
+case "$DIR" in
   */../*|../*|*'/..'|*'../'*)
     printf '%s\n' "error: refusing path traversal in -Dir: $DIR" >&2
     exit 1
@@ -365,27 +425,9 @@ META_PATH=$PANEL_DIR/orchestration.meta.json
 INSTALLED_REFRESH_PS1=$SCRIPTS_DIR/refresh.ps1
 INSTALLED_REFRESH_SH=$SCRIPTS_DIR/refresh.sh
 
-if [ -e "$PANEL_PATH" ]; then
-  assert_no_git_segment "$PANEL_PATH"
-  assert_no_symlink_chain "$PANEL_PATH"
-  same_panel=0
-  if file_bytes_equal "$SOURCE_PANEL" "$PANEL_PATH"; then
-    same_panel=1
-  fi
-  if [ "$same_panel" -eq 0 ] && [ "$UPDATE" -eq 0 ] && [ "$FORCE" -eq 0 ]; then
-    usage >&2
-    printf '%s\n' "error: existing panel differs from source: $PANEL_PATH" >&2
-    printf '%s\n' 'hint: rerun with -Update to replace the panel and refresh scripts' >&2
-    exit 1
-  fi
-  if [ "$FORCE" -eq 1 ] && [ "$same_panel" -eq 0 ]; then
-    printf '%s\n' "WARNING: -Force is overwriting a locally modified panel file: $PANEL_PATH" >&2
-  fi
-fi
-
-write_atomic_copy "$SOURCE_PANEL" "$PANEL_PATH"
-write_atomic_copy "$SOURCE_REFRESH_PS1" "$INSTALLED_REFRESH_PS1"
-write_atomic_copy "$SOURCE_REFRESH_SH" "$INSTALLED_REFRESH_SH"
+write_vendored_copy "$SOURCE_PANEL" "$PANEL_PATH" "panel file"
+write_vendored_copy "$SOURCE_REFRESH_PS1" "$INSTALLED_REFRESH_PS1" "refresh.ps1"
+write_vendored_copy "$SOURCE_REFRESH_SH" "$INSTALLED_REFRESH_SH" "refresh.sh"
 write_config_stub "$CONFIG_PATH" "$(basename -- "$TARGET_ROOT")"
 
 if [ -e "$META_PATH" ]; then
