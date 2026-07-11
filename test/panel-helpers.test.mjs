@@ -5,16 +5,50 @@ await import("../src/panel.js");
 
 const {
   applyCardFilters,
+  decideRefreshCycle,
   decideSourceMode,
   formatSnapshotAge,
   matchesSearch,
-  nextTheme
+  nextTheme,
+  shouldCommitRefreshResult
 } = globalThis.BMC_PANEL_HELPERS;
 
 test("decideSourceMode prefers live, then snapshot, then demo", () => {
   assert.equal(decideSourceMode({ fetchOk: true, snapshotPresent: true }), "live");
   assert.equal(decideSourceMode({ fetchOk: false, snapshotPresent: true }), "snapshot");
   assert.equal(decideSourceMode({ fetchOk: false, snapshotPresent: false }), "demo");
+});
+
+test("decideRefreshCycle blocks overlapping fetches and skips timer fetches outside live mode", () => {
+  assert.deepEqual(
+    decideRefreshCycle({ mode: "live", inFlight: false, timerTick: false }),
+    { shouldFetch: true, keepModel: true, queueNext: false }
+  );
+
+  assert.deepEqual(
+    decideRefreshCycle({ mode: "snapshot", inFlight: false, timerTick: true }),
+    { shouldFetch: false, keepModel: true, queueNext: false }
+  );
+
+  assert.deepEqual(
+    decideRefreshCycle({ mode: "live", inFlight: true, timerTick: true }),
+    { shouldFetch: false, keepModel: true, queueNext: true }
+  );
+});
+
+test("shouldCommitRefreshResult keeps the last good model on live fetch failures", () => {
+  assert.equal(
+    shouldCommitRefreshResult({ hasCurrentModel: true, liveFetchFailed: true }),
+    false
+  );
+  assert.equal(
+    shouldCommitRefreshResult({ hasCurrentModel: false, liveFetchFailed: true }),
+    true
+  );
+  assert.equal(
+    shouldCommitRefreshResult({ hasCurrentModel: true, liveFetchFailed: false }),
+    true
+  );
 });
 
 test("formatSnapshotAge renders minute, hour, day, and invalid cases", () => {
