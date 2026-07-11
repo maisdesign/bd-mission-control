@@ -112,8 +112,11 @@ function Read-Utf8Text {
 function Sanitize-MemoryValue {
   param([string]$Value)
   $text = [string]$Value
-  $text = [regex]::Replace($text, '(?i)\b((?:api[_-]?key|bearer|token|password)\b\s*[:=]\s*)\S+', '$1***REDACTED***')
-  $text = [regex]::Replace($text, '(?i)\b((?:api[_-]?key|bearer|token|password)\b\s+)\S+', '$1***REDACTED***')
+  $kw = '(?:api[_-]?key|bearer|token|password|secret|credential|private[_-]?key|aws_secret_access_key)'
+  # no leading \b: underscore is a word char, so \b would miss client_secret etc.
+  # Over-redaction is safe; leaking is not.
+  $text = [regex]::Replace($text, "(?i)($kw\b[`"']?\s*[:=]\s*[`"']?)[^\s`"']+", '$1***REDACTED***')
+  $text = [regex]::Replace($text, "(?i)($kw\b\s+[`"']?)[^\s`"']+", '$1***REDACTED***')
   if ($text.Length -gt 2000) {
     $text = $text.Substring(0, 2000)
   }
@@ -134,7 +137,7 @@ if ([string]::IsNullOrEmpty($issuesPath)) {
 }
 
 $outPath = Resolve-AbsolutePath $Out
-$tempPath = $outPath + '.tmp'
+$tempPath = $outPath + '.' + [System.IO.Path]::GetRandomFileName() + '.tmp'
 Assert-SafeWriteTarget $outPath
 Assert-SafeWriteTarget $tempPath
 
@@ -204,5 +207,17 @@ if (Test-Path -LiteralPath $metaPath) {
 }
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText($tempPath, [string]::Join("`n", $outputParts), $utf8NoBom)
+# TOCTOU guard: re-verify no reparse point appeared since the up-front check,
+# then create the temp file with CreateNew (O_EXCL semantics) so a pre-planted
+# file or symlink at this randomized path makes the write fail instead of following it.
+Assert-SafeWriteTarget $tempPath
+$stream = $null
+$writer = $null
+try {
+  $stream = New-Object System.IO.FileStream($tempPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write)
+  $writer = New-Object System.IO.StreamWriter($stream, $utf8NoBom)
+  $writer.Write([string]::Join("`n", $outputParts))
+} finally {
+  if ($null -ne $writer) { $writer.Dispose() } elseif ($null -ne $stream) { $stream.Dispose() }
+}
 Move-Item -LiteralPath $tempPath -Destination $outPath -Force

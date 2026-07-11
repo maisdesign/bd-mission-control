@@ -23,8 +23,6 @@ json_escape() {
       esc["\n"] = "\\n";
       esc["\r"] = "\\r";
       esc["\t"] = "\\t";
-      esc["\342\200\250"] = "\\u2028";
-      esc["\342\200\251"] = "\\u2029";
       for (i = 0; i < 32; i++) {
         ch = sprintf("%c", i);
         if (!(ch in esc)) {
@@ -35,13 +33,21 @@ json_escape() {
     {
       printf "\"";
       text = $0;
-      for (i = 1; i <= length(text); i++) {
+      n = length(text);
+      i = 1;
+      while (i <= n) {
+        # U+2028/U+2029 matched as explicit UTF-8 byte triples: byte-oriented awks
+        # (mawk, BWK) walk one byte at a time, so single-"char" table keys never fire.
+        tri = substr(text, i, 3);
+        if (tri == "\342\200\250") { printf "\\u2028"; i += 3; continue; }
+        if (tri == "\342\200\251") { printf "\\u2029"; i += 3; continue; }
         ch = substr(text, i, 1);
         if (ch in esc) {
           printf "%s", esc[ch];
         } else {
           printf "%s", ch;
         }
+        i++;
       }
       printf "\"";
     }
@@ -52,23 +58,47 @@ read_raw_file() {
   awk '
     BEGIN { RS = "\0"; ORS = "" }
     {
-      sub(/^\xef\xbb\xbf/, "");
-      printf "%s", $0;
+      text = $0;
+      # strip UTF-8 BOM via literal octal bytes: \xHH regex escapes are gawk-only
+      if (substr(text, 1, 3) == "\357\273\277") {
+        text = substr(text, 4);
+      }
+      printf "%s", text;
     }
   ' "$1"
 }
 
 sanitize_memory_value() {
+  # Portable awk only: gensub()/IGNORECASE are gawk extensions (mawk/BWK lack them).
+  # Case-insensitive matching is done on a tolower() shadow copy; RSTART/RLENGTH
+  # positions on the shadow map 1:1 onto the original bytes.
   awk '
+    function redact(text, pat,   low, out, cut, skip) {
+      low = tolower(text);
+      out = "";
+      while (match(low, pat)) {
+        cut = RSTART + RLENGTH - 1;
+        out = out substr(text, 1, cut);
+        text = substr(text, cut + 1);
+        low = substr(low, cut + 1);
+        if (match(text, /^[^"\047[:space:]]+/)) {
+          skip = RLENGTH;
+          out = out "***REDACTED***";
+          text = substr(text, skip + 1);
+          low = substr(low, skip + 1);
+        }
+      }
+      return out text;
+    }
     BEGIN {
       RS = "\0";
       ORS = "";
-      IGNORECASE = 1;
+      kw = "(api[_-]?key|bearer|token|password|secret|credential|private[_-]?key|aws_secret_access_key)";
     }
     {
       text = $0;
-      text = gensub(/((api[_-]?key|bearer|token|password)[[:space:]]*[:=][[:space:]]*)[^[:space:]]+/, "\\1***REDACTED***", "g", text);
-      text = gensub(/((api[_-]?key|bearer|token|password)[[:space:]]+)[^[:space:]]+/, "\\1***REDACTED***", "g", text);
+      text = redact(text, kw "[\"\047]?[[:space:]]*[:=][[:space:]]*[\"\047]?");
+      text = redact(text, kw "[[:space:]]+[\"\047]?");
       if (length(text) > 2000) {
         text = substr(text, 1, 2000);
       }
@@ -232,7 +262,9 @@ out_path=$(resolve_file "$OUT") || {
   printf '%s\n' 'error: could not resolve --out' >&2
   exit 1
 }
-temp_path=$out_path.tmp
+# randomized temp suffix: defeats pre-planting a symlink at a predictable name
+temp_rand=$(awk 'BEGIN { srand(); printf "%06d", int(rand() * 1000000) }')
+temp_path=$out_path.$$.$temp_rand.tmp
 
 ensure_no_symlink_chain "$out_path"
 ensure_no_symlink_chain "$temp_path"
@@ -311,7 +343,18 @@ if [ -f "$meta_path" ]; then
 window.BMC_META_JSON = $meta_text;"
 fi
 
-printf '%s' "$output_text" > "$temp_path" || {
+# TOCTOU guard: re-verify no symlink appeared since the up-front check, then
+# create with noclobber (O_EXCL semantics) so a pre-planted file/symlink at the
+# randomized temp path makes the write fail instead of following it.
+ensure_no_symlink_chain "$temp_path"
+if [ -e "$temp_path" ]; then
+  printf '%s\n' "error: temp path already exists: $temp_path" >&2
+  exit 1
+fi
+(
+  set -C
+  printf '%s' "$output_text" > "$temp_path"
+) || {
   rm -f -- "$temp_path"
   exit 1
 }
