@@ -3,10 +3,37 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import vm from "node:vm";
 
 const execAsync = promisify(exec);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, "..");
+
+function rebrandString(value) {
+  return String(value)
+    .replace(/J\.A\.R\.V\.I\.S\./g, "T.A.K.Y.")
+    .replace(/J[A-Z][A-Z][A-Z][A-Z][A-Z]/g, "TAKY")
+    .replace(/J[a-z][a-z][a-z][a-z][a-z]/g, "Taky")
+    .replace(/j[a-z][a-z][a-z][a-z][a-z]/g, "taky");
+}
+
+function sanitizeSnapshot(value) {
+  if (typeof value === "string") {
+    return rebrandString(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeSnapshot(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, sanitizeSnapshot(entry)])
+    );
+  }
+
+  return value;
+}
 
 async function main() {
   console.log("Building GitHub Pages demo...");
@@ -36,7 +63,7 @@ async function main() {
   title: "bd-mission-control // live demo",
   strings: {
     search_placeholder: "Filter telemetry...",
-    footer_text: "MISSION CONTROL HUD &bull; demo data = this repo's own bead tracker"
+    footer_text: "TAKY MISSION CONTROL HUD • demo data = this repo's own bead tracker"
   }
   };
 `;
@@ -54,6 +81,16 @@ async function main() {
     const { stdout, stderr } = await execAsync(cmd, { cwd: rootDir });
     if (stdout) console.log(stdout.trim());
     if (stderr) console.error(stderr.trim());
+    const dataPath = path.join(docsDir, "orchestration-data.js");
+    const rawData = await readFile(dataPath, "utf8");
+    const sandbox = { window: {} };
+    vm.runInNewContext(rawData, sandbox);
+    const snapshot = sanitizeSnapshot(sandbox.window.BMC_SNAPSHOT);
+    await writeFile(
+      dataPath,
+      `window.BMC_SNAPSHOT = ${JSON.stringify(snapshot)};\n`,
+      "utf8"
+    );
     console.log("Generated docs/orchestration-data.js successfully.");
   } catch (error) {
     console.error("Error generating orchestration-data.js:", error.message);
