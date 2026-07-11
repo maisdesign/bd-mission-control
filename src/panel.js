@@ -276,6 +276,12 @@ function setDisplay(node, visible) {
   }
 }
 
+function setAriaBoolean(node, name, value) {
+  if (node) {
+    node.setAttribute(name, value ? "true" : "false");
+  }
+}
+
 function hasAudioContextSupport() {
   return typeof window !== "undefined"
     && (typeof window.AudioContext === "function" || typeof window.webkitAudioContext === "function");
@@ -700,7 +706,9 @@ function syncSoundToggleUi(state) {
   }
 
   button.hidden = false;
-  button.setAttribute("aria-pressed", state.sound.enabled ? "true" : "false");
+  const baseLabel = button.dataset.a11yBaseLabel || button.textContent || "Sound";
+  setAriaBoolean(button, "aria-pressed", state.sound.enabled);
+  setAccessibleLabel(button, `${baseLabel}: ${state.sound.enabled ? "on" : "off"}`);
   button.textContent = state.sound.enabled ? "ON" : "OFF";
   button.title = state.sound.enabled ? "Completion chime on" : "Completion chime off";
 }
@@ -761,12 +769,16 @@ function syncAnnounceUi(state) {
 
   if (speakButton) {
     speakButton.hidden = false;
+    const baseLabel = speakButton.dataset.a11yBaseLabel || speakButton.textContent || "Report";
+    setAccessibleLabel(speakButton, baseLabel);
     speakButton.title = "Speak status report";
   }
 
   if (toggleButton) {
     toggleButton.hidden = false;
-    toggleButton.setAttribute("aria-pressed", state.announce.enabled ? "true" : "false");
+    const baseLabel = toggleButton.dataset.a11yBaseLabel || toggleButton.textContent || "Voice";
+    setAriaBoolean(toggleButton, "aria-pressed", state.announce.enabled);
+    setAccessibleLabel(toggleButton, `${baseLabel}: ${state.announce.enabled ? "on" : "off"}`);
     toggleButton.textContent = state.announce.enabled ? "ON" : "OFF";
     toggleButton.title = state.announce.enabled ? "Voice announcer on" : "Voice announcer off";
   }
@@ -964,6 +976,31 @@ function resolveI18nValue(strings, key) {
   return typeof nested === "string" ? nested : "";
 }
 
+function getUiText(strings, key, fallback) {
+  return resolveI18nValue(strings, key) || fallback;
+}
+
+function setAccessibleLabel(node, label) {
+  if (node && label) {
+    node.setAttribute("aria-label", label);
+  }
+}
+
+function syncTickerAccessibility() {
+  const staticNode = byId("ticker-static");
+  if (!staticNode) {
+    return;
+  }
+
+  const items = Array.from(document.querySelectorAll(".ticker-group:first-child .ticker-item"))
+    .map((node) => node.textContent?.trim())
+    .filter(Boolean);
+
+  if (items.length > 0) {
+    staticNode.textContent = `${items.join(". ")}.`;
+  }
+}
+
 function applyI18n(strings, configTitle) {
   const nodes = document.querySelectorAll("[data-i18n]");
   for (const node of nodes) {
@@ -1049,9 +1086,10 @@ function setThemeMode(theme) {
 
   const toggle = byId("themetoggle");
   if (toggle) {
+    const baseLabel = toggle.dataset.a11yBaseLabel || toggle.textContent || "Theme";
     toggle.setAttribute("data-mode", theme);
-    toggle.setAttribute("aria-label", `Theme: ${theme}`);
-    toggle.title = `Theme: ${theme}`;
+    toggle.setAttribute("aria-label", `${baseLabel}: ${theme}`);
+    toggle.title = `${baseLabel}: ${theme}`;
   }
 }
 
@@ -1068,6 +1106,7 @@ function createTrackContainer(toolbar) {
   const container = document.createElement("div");
   container.id = "trackchips";
   container.className = "toolbar-left";
+  container.setAttribute("role", "group");
   container.setAttribute("aria-label", "Track filters");
   toolbar.insertAdjacentElement("afterend", container);
   return container;
@@ -1272,6 +1311,7 @@ function updateTrackFilters(state) {
     button.className = `chip${state.filters.track === track ? " active" : ""}`;
     button.dataset.track = track;
     button.textContent = track === "all" ? "TRACK: ALL" : `TRACK: ${track}`;
+    setAriaBoolean(button, "aria-pressed", state.filters.track === track);
     container.appendChild(button);
   }
 }
@@ -1293,8 +1333,22 @@ function ensureUnverifiedChip() {
   button.className = "chip chip-ghost";
   button.textContent = "UNVERIFIED ONLY";
   button.title = "Show only done cards closed without independent verification";
+  button.setAttribute("aria-label", "Show only unverified completed cards");
   chipsRoot.appendChild(button);
   return button;
+}
+
+function updateStatusFilterUi(state) {
+  const chipsRoot = byId("chips");
+  if (!chipsRoot) {
+    return;
+  }
+
+  for (const node of chipsRoot.querySelectorAll(".chip[data-f]")) {
+    const pressed = (node.dataset.f || "all") === state.filters.status;
+    node.classList.toggle("active", pressed);
+    setAriaBoolean(node, "aria-pressed", pressed);
+  }
 }
 
 function updateUnverifiedChip(state) {
@@ -1304,7 +1358,7 @@ function updateUnverifiedChip(state) {
   }
 
   chip.classList.toggle("active", state.filters.unverifiedOnly === true);
-  chip.setAttribute("aria-pressed", state.filters.unverifiedOnly === true ? "true" : "false");
+  setAriaBoolean(chip, "aria-pressed", state.filters.unverifiedOnly === true);
 }
 
 function ensureTelemetryStrip() {
@@ -1514,18 +1568,22 @@ function renderCards(state) {
       }
 
       root.classList.add(card.state);
+      root.setAttribute("aria-label", `${card.id}, ${getStatusLabel(state.strings, card.state)}. ${card.label}`);
       const idNode = queryOne(".id", fragment);
-      if (idNode) {
+      if (idNode instanceof HTMLButtonElement) {
         idNode.textContent = card.id;
         idNode.dataset.id = card.id;
+        idNode.type = "button";
         idNode.title = `Copy: bd show ${card.id}`;
-        idNode.style.cursor = "pointer";
+        idNode.setAttribute("aria-label", `Copy command for ${card.id}`);
       }
 
       const pill = queryOne(".stpill", fragment);
       if (pill) {
         pill.className = `stpill stpill-${card.state}`;
-        pill.textContent = getStatusLabel(state.strings, card.state);
+        const statusLabel = getStatusLabel(state.strings, card.state);
+        pill.textContent = statusLabel;
+        pill.setAttribute("aria-label", `Status ${statusLabel}`);
       }
 
       const think = queryOne(".think", fragment);
@@ -1540,6 +1598,7 @@ function renderCards(state) {
         badge.className = `verify-badge ${verificationBadge.tone}`;
         badge.textContent = verificationBadge.text;
         badge.title = verificationBadge.title;
+        badge.setAttribute("aria-label", `${verificationBadge.text}. ${verificationBadge.title}`);
         if (think) {
           think.insertAdjacentElement("afterend", badge);
         } else {
@@ -1642,15 +1701,19 @@ function renderCards(state) {
 function render(state) {
   updateStatusCounts(state.model?.counts);
   updateTrackFilters(state);
+  updateStatusFilterUi(state);
   updateUnverifiedChip(state);
   renderOrchestratorStrip(state);
   renderCards(state);
 
   const ring = byId("ring");
+  const pct = state.model?.pct ?? 0;
   if (ring) {
-    ring.style.setProperty("--ring-percent", String(state.model?.pct ?? 0));
+    ring.style.setProperty("--ring-percent", String(pct));
+    ring.setAttribute("aria-valuenow", String(pct));
+    ring.setAttribute("aria-valuetext", `${pct}% complete`);
   }
-  setText(byId("ringpct"), `${state.model?.pct ?? 0}%`);
+  setText(byId("ringpct"), `${pct}%`);
 }
 
 function showToast(message) {
@@ -2188,13 +2251,67 @@ function bindRefresh(state) {
 
 function bindCopy() {
   document.addEventListener("click", (event) => {
-    const target = event.target instanceof Element ? event.target.closest(".id[data-id]") : null;
+    const target = event.target instanceof Element ? event.target.closest(".id-button[data-id]") : null;
     if (!target) {
       return;
     }
 
     copyIssueCommand(target.dataset.id);
   });
+}
+
+function bindBootOverlay() {
+  const overlay = byId("boot-overlay");
+  if (!overlay) {
+    return;
+  }
+
+  const hideOverlay = () => {
+    overlay.hidden = true;
+    overlay.setAttribute("aria-hidden", "true");
+    overlay.setAttribute("inert", "");
+  };
+
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+    hideOverlay();
+    return;
+  }
+
+  overlay.addEventListener("animationend", hideOverlay, { once: true });
+}
+
+function syncControlAccessibility(state) {
+  const strings = state.strings;
+  const search = byId("search");
+  const searchLabel = document.querySelector('label[for="search"]');
+  const auto = byId("auto");
+  const announceButton = byId("announcebutton");
+  const announceToggle = byId("announcetoggle");
+  const soundToggle = byId("soundtoggle");
+  const themeToggle = byId("themetoggle");
+  const updateText = byId("updtxt");
+
+  if (searchLabel) {
+    searchLabel.textContent = getUiText(strings, "search_placeholder", "Search issues");
+  }
+  setAccessibleLabel(search, getUiText(strings, "search_placeholder", "Search issues"));
+  setAccessibleLabel(auto, getUiText(strings, "auto", "Live refresh"));
+  if (announceButton) {
+    announceButton.dataset.a11yBaseLabel = getUiText(strings, "announce_button", announceButton.textContent || "Report");
+  }
+  if (announceToggle) {
+    announceToggle.dataset.a11yBaseLabel = getUiText(strings, "announce_toggle", announceToggle.textContent || "Voice");
+  }
+  if (soundToggle) {
+    soundToggle.dataset.a11yBaseLabel = getUiText(strings, "sound", soundToggle.textContent || "Sound");
+  }
+  if (themeToggle) {
+    themeToggle.dataset.a11yBaseLabel = getUiText(strings, "theme", themeToggle.textContent || "Theme");
+  }
+  if (updateText) {
+    updateText.setAttribute("aria-live", "polite");
+    updateText.setAttribute("aria-atomic", "true");
+  }
 }
 
 function bindThemeToggle() {
@@ -2324,10 +2441,13 @@ function init() {
   }
 
   applyConfig(config, state);
+  syncControlAccessibility(state);
+  syncTickerAccessibility();
   const auto = byId("auto");
   if (auto instanceof HTMLInputElement) {
     auto.checked = config.autoRefresh;
   }
+  bindBootOverlay();
   bindStatusFilters(state);
   bindTrackFilters(state);
   bindSearch(state);
