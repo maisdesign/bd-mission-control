@@ -825,6 +825,52 @@ main {
   border-style: dashed;
 }
 
+/* ===== bmc-12 ===== */
+
+.hud-btn-mini {
+  min-width: 5.5rem;
+  padding-inline: 0.7rem;
+}
+
+#soundtoggle {
+  position: relative;
+  letter-spacing: 0.12em;
+}
+
+#soundtoggle::before {
+  content: "SND";
+  margin-right: 0.45rem;
+  opacity: 0.72;
+}
+
+#soundtoggle[aria-pressed="true"] {
+  border-color: rgba(154, 230, 255, 0.75);
+  color: #d9f8ff;
+  background:
+    linear-gradient(180deg, rgba(123, 227, 255, 0.22), rgba(26, 58, 86, 0.16)),
+    rgba(var(--bmc-accent-rgb), 0.08);
+  box-shadow:
+    inset 0 0 12px rgba(154, 230, 255, 0.12),
+    0 0 14px rgba(123, 227, 255, 0.16);
+}
+
+#soundtoggle[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: #b7f6ff;
+  box-shadow: 0 0 12px rgba(183, 246, 255, 0.8);
+  transform: translateY(-50%);
+}
+
+#soundtoggle[hidden] {
+  display: none;
+}
+
 .attempt-tag {
   color: var(--bmc-secondary);
   border-color: rgba(var(--bmc-secondary-rgb), 0.3);
