@@ -32,6 +32,7 @@ test("Theme contract gates validation", async () => {
     "prefers-reduced-motion",
     "data-theme",
     "--bmc-accent",
+    "--bmc-accent-rgb",
     "data-i18n"
   ];
 
@@ -41,6 +42,37 @@ test("Theme contract gates validation", async () => {
       hasKeyword,
       true,
       `Required keyword/feature '${keyword}' was not found in the visual code files`
+    );
+  }
+
+  // 3. No external URLs in the visual bundle sources.
+  assert.strictEqual(
+    /https?:\/\//i.test(combined),
+    false,
+    "Visual code files must not contain external http(s) URLs"
+  );
+
+  // 4. The handoff requires broad i18n coverage.
+  const i18nMatches = combined.match(/data-i18n=/g) || [];
+  assert.ok(
+    i18nMatches.length >= 20,
+    `Expected at least 20 data-i18n hooks, found ${i18nMatches.length}`
+  );
+
+  // 5. Jarvis handoff structural gates.
+  const requiredStructures = [
+    "boot-overlay",
+    "ticker-track",
+    "ring-progress",
+    "--ring-percent",
+    "card-tpl",
+    "particle p26"
+  ];
+
+  for (const marker of requiredStructures) {
+    assert.ok(
+      combined.includes(marker),
+      `Required Jarvis structure '${marker}' was not found in the visual code files`
     );
   }
 });
