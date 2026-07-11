@@ -6,11 +6,13 @@ await import("../src/panel.js");
 const {
   acceptLiveResult,
   applyCardFilters,
+  computeGridFingerprint,
   decideRefreshCycle,
   decideSourceMode,
   formatSnapshotAge,
   matchesSearch,
   nextTheme,
+  shouldRebuildGrid,
   shouldCommitRefreshResult
 } = globalThis.BMC_PANEL_HELPERS;
 
@@ -167,4 +169,113 @@ test("applyCardFilters composes status, track, and search with AND semantics", (
     applyCardFilters(cards, { status: "blocked", track: "UI", query: "codex" }).map((card) => card.id),
     []
   );
+});
+
+test("computeGridFingerprint is deterministic and ignores timestamp-only source drift", () => {
+  const filters = {
+    status: "all",
+    track: "all",
+    query: "",
+    unverifiedOnly: false
+  };
+  const modelA = {
+    waves: [
+      { key: "wave-1", title: "Wave 1", subtitle: "1/1 done", ids: ["bmc-21"] }
+    ],
+    beads: {
+      "bmc-21": {
+        state: "inprogress",
+        phase: "wave:8",
+        label: "Fix refresh flicker",
+        track: "UI",
+        thinking: "medhi",
+        assignee: "codex-lavoro",
+        blockedBy: [],
+        note: "",
+        flag: false,
+        verification: null,
+        updated_at: "2026-07-11T12:00:00Z"
+      }
+    }
+  };
+
+  const modelB = {
+    waves: [
+      { key: "wave-1", title: "Wave 1", subtitle: "1/1 done", ids: ["bmc-21"] }
+    ],
+    beads: {
+      "bmc-21": {
+        ...modelA.beads["bmc-21"],
+        updated_at: "2026-07-11T12:05:00Z"
+      }
+    }
+  };
+
+  assert.equal(computeGridFingerprint(modelA, filters), computeGridFingerprint(modelA, filters));
+  assert.equal(computeGridFingerprint(modelA, filters), computeGridFingerprint(modelB, filters));
+});
+
+test("computeGridFingerprint changes when rendered card fields or filters change", () => {
+  const baseModel = {
+    waves: [
+      { key: "wave-1", title: "Wave 1", subtitle: "", ids: ["bmc-21"] }
+    ],
+    beads: {
+      "bmc-21": {
+        state: "ready",
+        phase: "wave:8",
+        label: "Fix refresh flicker",
+        track: "UI",
+        thinking: "medhi",
+        assignee: "codex-lavoro",
+        blockedBy: [],
+        note: "",
+        flag: false,
+        verification: null
+      }
+    }
+  };
+  const filters = { status: "all", track: "all", query: "", unverifiedOnly: false };
+
+  const changedStatus = {
+    ...baseModel,
+    beads: {
+      "bmc-21": {
+        ...baseModel.beads["bmc-21"],
+        state: "blocked"
+      }
+    }
+  };
+
+  const changedAssignee = {
+    ...baseModel,
+    beads: {
+      "bmc-21": {
+        ...baseModel.beads["bmc-21"],
+        assignee: "agy"
+      }
+    }
+  };
+
+  const changedVerification = {
+    ...baseModel,
+    beads: {
+      "bmc-21": {
+        ...baseModel.beads["bmc-21"],
+        verification: "pass"
+      }
+    }
+  };
+
+  const baseFingerprint = computeGridFingerprint(baseModel, filters);
+  assert.notEqual(baseFingerprint, computeGridFingerprint(changedStatus, filters));
+  assert.notEqual(baseFingerprint, computeGridFingerprint(changedAssignee, filters));
+  assert.notEqual(baseFingerprint, computeGridFingerprint(changedVerification, filters));
+  assert.notEqual(baseFingerprint, computeGridFingerprint(baseModel, { ...filters, status: "ready" }));
+});
+
+test("shouldRebuildGrid only returns true when the fingerprint changes", () => {
+  assert.equal(shouldRebuildGrid(null, "next"), true);
+  assert.equal(shouldRebuildGrid("same", "same"), false);
+  assert.equal(shouldRebuildGrid("prev", "next"), true);
 });
