@@ -90,6 +90,27 @@ function applyCardFilters(cards, filters) {
   });
 }
 
+function decideRefreshCycle({ mode, inFlight, timerTick }) {
+  const keepModel = true;
+  if (inFlight) {
+    return { shouldFetch: false, keepModel, queueNext: true };
+  }
+
+  if (timerTick && mode !== "live") {
+    return { shouldFetch: false, keepModel, queueNext: false };
+  }
+
+  return { shouldFetch: true, keepModel, queueNext: false };
+}
+
+function shouldCommitRefreshResult({ hasCurrentModel, liveFetchFailed }) {
+  if (liveFetchFailed && hasCurrentModel) {
+    return false;
+  }
+
+  return true;
+}
+
 const DEMO_HINT = "no data - run refresh or serve over HTTP";
 const DEFAULT_DATA_PATH = "../.beads/issues.jsonl";
 const DEFAULT_REFRESH_INTERVAL = 15000;
@@ -1760,12 +1781,13 @@ async function resolveData(config, state) {
   const dataPath = config.dataPath || DEFAULT_DATA_PATH;
   let fetchOk = false;
   let liveIssues = [];
+  let liveFetchError = null;
 
   try {
     liveIssues = await fetchLiveIssues(dataPath);
     fetchOk = true;
   } catch (error) {
-    console.info("BMC live fetch failed", error);
+    liveFetchError = error;
   }
 
   const snapshot = window.BMC_SNAPSHOT && typeof window.BMC_SNAPSHOT === "object"
@@ -1783,7 +1805,9 @@ async function resolveData(config, state) {
       path: dataPath,
       issues: liveIssues,
       orchestrator: null,
-      hint: ""
+      hint: "",
+      fetchOk,
+      liveFetchError
     };
   }
 
@@ -1796,7 +1820,9 @@ async function resolveData(config, state) {
       orchestrator: snapshot.orchestrator && typeof snapshot.orchestrator === "object"
         ? snapshot.orchestrator
         : null,
-      hint: ""
+      hint: "",
+      fetchOk,
+      liveFetchError
     };
   }
 
@@ -1805,7 +1831,9 @@ async function resolveData(config, state) {
     path: "inline demo",
     issues: DEMO_ISSUES,
     orchestrator: null,
-    hint: DEMO_HINT
+    hint: DEMO_HINT,
+    fetchOk,
+    liveFetchError
   };
 }
 
@@ -1845,6 +1873,11 @@ function buildState(config) {
       completedSince: 0,
       pendingDoneIds: [],
       timerId: 0
+    },
+    refresh: {
+      inFlight: false,
+      pending: null,
+      pausedModeLogged: ""
     },
     timerId: 0,
     lastUpdatedLabel: "never",
@@ -1920,39 +1953,39 @@ function syncAutoRefresh(state) {
 
   const auto = byId("auto");
   if (!(auto instanceof HTMLInputElement) || !auto.checked) {
+    state.refresh.pausedModeLogged = "";
     return;
   }
 
   if (state.source.mode !== "live") {
+    if (state.refresh.pausedModeLogged !== state.source.mode) {
+      console.info(`BMC auto-refresh paused in ${state.source.mode} mode`);
+      state.refresh.pausedModeLogged = state.source.mode;
+    }
     return;
   }
 
+  state.refresh.pausedModeLogged = "";
   state.timerId = window.setInterval(() => {
-    refresh(state, { manual: false });
+    refresh(state, { manual: false, timerTick: true });
   }, state.config.refreshInterval || DEFAULT_REFRESH_INTERVAL);
 }
 
-async function refresh(state, { manual }) {
-  const meta = await loadMeta(state.config);
-  const source = await resolveData(state.config, state);
+function commitRefreshState(state, nextState) {
   const previousDoneIds = state.previousDoneIds;
   const previousPct = state.model?.pct ?? 0;
   const wasBaselined = state.announce.baselined;
-  state.source = source;
-  state.issuesById = new Map(
-    source.issues
-      .filter((issue) => issue && typeof issue.id === "string")
-      .map((issue) => [issue.id, issue])
-  );
-  state.model = deriveModel(source.issues, meta, { strings: state.config.strings });
+  state.source = nextState.source;
+  state.issuesById = nextState.issuesById;
+  state.model = nextState.model;
   const nextDoneIds = collectDoneIds(state.model);
   const newlyDoneIds = diffDoneIds(previousDoneIds, nextDoneIds);
   state.previousDoneIds = nextDoneIds;
-  state.trackOptions = computeTrackOptions(state.model);
-  state.orchestrator = summarizeOrchestrator(source.orchestrator, state.now());
-  stampLastUpdated(state);
+  state.trackOptions = nextState.trackOptions;
+  state.orchestrator = nextState.orchestrator;
+  state.lastUpdatedLabel = nextState.lastUpdatedLabel;
   render(state);
-  setSourceUi(source, state);
+  setSourceUi(nextState.source, state);
   syncAutoRefresh(state);
   state.previousPct = previousPct;
 
@@ -1965,9 +1998,81 @@ async function refresh(state, { manual }) {
   }
 
   state.previousPct = state.model?.pct ?? 0;
+}
 
-  if (manual) {
-    showToast(`Refresh complete: ${source.mode}`);
+async function refresh(state, options = {}) {
+  const manual = options.manual === true;
+  const timerTick = options.timerTick === true;
+  const decision = decideRefreshCycle({
+    mode: state.source.mode,
+    inFlight: state.refresh.inFlight,
+    timerTick
+  });
+
+  if (decision.queueNext) {
+    state.refresh.pending = {
+      manual: manual || state.refresh.pending?.manual === true,
+      timerTick: false
+    };
+    return;
+  }
+
+  if (!decision.shouldFetch) {
+    return;
+  }
+
+  state.refresh.inFlight = true;
+
+  try {
+    const meta = await loadMeta(state.config);
+    const source = await resolveData(state.config, state);
+    const liveFetchFailed = Boolean(source.liveFetchError);
+    const commitAllowed = shouldCommitRefreshResult({
+      hasCurrentModel: state.model !== null,
+      liveFetchFailed
+    });
+
+    if (!commitAllowed) {
+      console.info("BMC refresh kept last good model after live fetch failure");
+      return;
+    }
+
+    const model = deriveModel(source.issues, meta, { strings: state.config.strings });
+    const issuesById = new Map(
+      source.issues
+        .filter((issue) => issue && typeof issue.id === "string")
+        .map((issue) => [issue.id, issue])
+    );
+    const nextState = {
+      source,
+      issuesById,
+      model,
+      trackOptions: computeTrackOptions(model),
+      orchestrator: summarizeOrchestrator(source.orchestrator, state.now()),
+      lastUpdatedLabel: new Date(state.now()).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      })
+    };
+
+    commitRefreshState(state, nextState);
+
+    if (manual) {
+      showToast(`Refresh complete: ${source.mode}`);
+    }
+  } catch (error) {
+    console.info("BMC refresh failed; keeping last good model", error);
+    if (state.model === null) {
+      throw error;
+    }
+  } finally {
+    state.refresh.inFlight = false;
+    if (state.refresh.pending) {
+      const pending = state.refresh.pending;
+      state.refresh.pending = null;
+      void refresh(state, pending);
+    }
   }
 }
 
@@ -1978,7 +2083,7 @@ function bindRefresh(state) {
   }
 
   refreshButton.addEventListener("click", () => {
-    refresh(state, { manual: true });
+    refresh(state, { manual: true, timerTick: false });
   });
 
   const auto = byId("auto");
@@ -2200,6 +2305,7 @@ if (typeof globalThis !== "undefined") {
     buildAnnouncementValues,
     buildCompletionChime,
     collectDoneIds,
+    decideRefreshCycle,
     decideSourceMode,
     diffDoneIds,
     formatSnapshotAge,
@@ -2220,6 +2326,7 @@ if (typeof globalThis !== "undefined") {
     mergeAutoRefreshConfig,
     resolveSnapshotPayload,
     selectAnnouncementVoice,
+    shouldCommitRefreshResult,
     shouldAnnounce,
     summarizeOrchestrator,
     snapshotIssues
