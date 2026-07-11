@@ -1790,6 +1790,7 @@ const DEFAULT_DATA_PATH = "../.beads/issues.jsonl";
 const DEFAULT_REFRESH_INTERVAL = 15000;
 const SOUND_STORAGE_KEY = "bmc-sound";
 const ANNOUNCE_STORAGE_KEY = "bmc-announce";
+const AUTO_REFRESH_STORAGE_KEY = "bmc-auto";
 const THEME_STORAGE_KEY = "bmc-theme";
 const SEARCH_DEBOUNCE_MS = 150;
 const SOUND_DEFAULTS = Object.freeze({
@@ -1972,6 +1973,22 @@ function readStoredAnnounceEnabled(storage = globalThis?.localStorage) {
   return null;
 }
 
+function readStoredAutoRefreshEnabled(storage = globalThis?.localStorage) {
+  try {
+    const raw = storage?.getItem?.(AUTO_REFRESH_STORAGE_KEY);
+    if (raw === "1" || raw === "true") {
+      return true;
+    }
+    if (raw === "0" || raw === "false") {
+      return false;
+    }
+  } catch {
+    // Ignore storage failures.
+  }
+
+  return null;
+}
+
 function clampSoundVolume(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -2052,6 +2069,18 @@ function mergeAnnounceConfig(announceConfig, storedEnabled = null, strings = {})
   };
 }
 
+function mergeAutoRefreshConfig(autoRefreshConfig, storedEnabled = null) {
+  if (typeof storedEnabled === "boolean") {
+    return storedEnabled;
+  }
+
+  if (typeof autoRefreshConfig === "boolean") {
+    return autoRefreshConfig;
+  }
+
+  return true;
+}
+
 function interpolateAnnouncementTemplate(template, values = {}) {
   const source = typeof template === "string" && template.trim()
     ? template
@@ -2082,7 +2111,7 @@ function buildAnnouncementValues(model, newlyDone = "") {
   };
 }
 
-function selectAnnouncementVoice(voices, preferredName) {
+function selectAnnouncementVoice(voices, preferredName, preferredLang = ANNOUNCE_DEFAULTS.lang) {
   const available = Array.isArray(voices)
     ? voices.filter((voice) => voice && typeof voice.name === "string")
     : [];
@@ -2093,13 +2122,56 @@ function selectAnnouncementVoice(voices, preferredName) {
 
   const needle = String(preferredName || "").trim().toLowerCase();
   if (needle) {
+    const exact = available.find((voice) => voice.name.toLowerCase() === needle);
+    if (exact) {
+      return exact;
+    }
+
     const preferred = available.find((voice) => voice.name.toLowerCase().includes(needle));
     if (preferred) {
       return preferred;
     }
   }
 
-  return available.find((voice) => voice.default === true) || available[0];
+  const normalizedLang = String(preferredLang || "").trim().toLowerCase();
+  const englishNameHints = [
+    "google us english",
+    "microsoft zira",
+    "microsoft aria",
+    "microsoft jenny"
+  ];
+
+  const rankVoice = (voice) => {
+    const voiceName = voice.name.toLowerCase();
+    const voiceLang = String(voice.lang || "").trim().toLowerCase();
+    const langBase = normalizedLang.split("-")[0];
+    const voiceIsEnglish = voiceLang.startsWith("en");
+    let score = voice.default === true ? 5 : 0;
+
+    if (normalizedLang) {
+      if (voiceLang === normalizedLang) {
+        score += 200;
+      } else if (voiceLang.startsWith(`${langBase}-`) || voiceLang === langBase) {
+        score += 160;
+      }
+    }
+
+    if (voiceIsEnglish && (normalizedLang.startsWith("en") || !normalizedLang)) {
+      if (englishNameHints.some((hint) => voiceName.includes(hint))) {
+        score += 120;
+      }
+
+      score += 100;
+    }
+
+    if (voice.default === true) {
+      score += 20;
+    }
+
+    return score;
+  };
+
+  return [...available].sort((left, right) => rankVoice(right) - rankVoice(left))[0] || null;
 }
 
 function shouldAnnounce({ everyMs = 0, elapsedMs = 0, everyDone = 0, doneCount = 0, changed = false }) {
@@ -2317,6 +2389,14 @@ function persistAnnounceEnabled(enabled, storage = globalThis?.localStorage) {
   }
 }
 
+function persistAutoRefreshEnabled(enabled, storage = globalThis?.localStorage) {
+  try {
+    storage?.setItem?.(AUTO_REFRESH_STORAGE_KEY, enabled ? "1" : "0");
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
 function syncAnnounceUi(state) {
   const speakButton = byId("announcebutton");
   const toggleButton = byId("announcetoggle");
@@ -2404,33 +2484,95 @@ function recordAnnouncement(state) {
   state.announce.baselined = true;
 }
 
-function speakAnnouncement(state, options = {}) {
+async function waitForSpeechVoices(speechSynthesis, timeoutMs = 1500) {
+  const getVoices = () => {
+    try {
+      return speechSynthesis.getVoices?.() || [];
+    } catch {
+      return [];
+    }
+  };
+
+  const current = getVoices();
+  if (current.length > 0) {
+    return current;
+  }
+
+  return await new Promise((resolve) => {
+    let settled = false;
+    const previousHandler = speechSynthesis.onvoiceschanged;
+    const timerId = window.setTimeout(() => finish(getVoices()), timeoutMs);
+
+    const finish = (voices) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      window.clearTimeout(timerId);
+      if (speechSynthesis.onvoiceschanged === handler) {
+        speechSynthesis.onvoiceschanged = previousHandler || null;
+      }
+      resolve(voices);
+    };
+
+    const handler = () => {
+      const voices = getVoices();
+      if (voices.length === 0) {
+        return;
+      }
+
+      finish(voices);
+      if (typeof previousHandler === "function") {
+        try {
+          previousHandler.call(speechSynthesis);
+        } catch {
+          // Ignore listener failures.
+        }
+      }
+    };
+
+    speechSynthesis.onvoiceschanged = handler;
+  });
+}
+
+async function speakAnnouncement(state, options = {}) {
   if (!state.announce.supported || !state.model) {
     return false;
   }
 
-  const text = buildAnnouncementText(state, options);
-  if (!text) {
+  try {
+    const text = buildAnnouncementText(state, options);
+    if (!text) {
+      return false;
+    }
+
+    const utterance = new window.SpeechSynthesisUtterance(text);
+    utterance.lang = state.announce.lang;
+    utterance.rate = state.announce.rate;
+    utterance.pitch = state.announce.pitch;
+
+    const voices = await waitForSpeechVoices(window.speechSynthesis);
+    const selectedVoice = selectAnnouncementVoice(
+      voices,
+      state.announce.voice,
+      state.announce.lang
+    );
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
+      if (typeof selectedVoice.lang === "string" && selectedVoice.lang.trim()) {
+        utterance.lang = selectedVoice.lang;
+      }
+    }
+
+    cancelAnnouncement(state);
+    window.speechSynthesis.speak(utterance);
+    recordAnnouncement(state);
+    return true;
+  } catch (error) {
+    console.info("BMC announce skipped", error);
     return false;
   }
-
-  const utterance = new window.SpeechSynthesisUtterance(text);
-  utterance.lang = state.announce.lang;
-  utterance.rate = state.announce.rate;
-  utterance.pitch = state.announce.pitch;
-
-  const selectedVoice = selectAnnouncementVoice(
-    window.speechSynthesis.getVoices?.() || [],
-    state.announce.voice
-  );
-  if (selectedVoice) {
-    utterance.voice = selectedVoice;
-  }
-
-  cancelAnnouncement(state);
-  window.speechSynthesis.speak(utterance);
-  recordAnnouncement(state);
-  return true;
 }
 
 function maybeAnnounceOnTimer(state) {
@@ -2445,7 +2587,7 @@ function maybeAnnounceOnTimer(state) {
   });
 
   if (decision.timer) {
-    speakAnnouncement(state);
+    void speakAnnouncement(state);
   }
 }
 
@@ -3537,6 +3679,9 @@ function bindRefresh(state) {
   const auto = byId("auto");
   if (auto) {
     auto.addEventListener("change", () => {
+      if (auto instanceof HTMLInputElement) {
+        persistAutoRefreshEnabled(auto.checked);
+      }
       syncAutoRefresh(state);
     });
   }
@@ -3597,8 +3742,8 @@ function bindAnnounceButton(state) {
     return;
   }
 
-  button.addEventListener("click", () => {
-    const spoken = speakAnnouncement(state);
+  button.addEventListener("click", async () => {
+    const spoken = await speakAnnouncement(state);
     if (spoken) {
       showToast("Status report spoken");
     }
@@ -3651,6 +3796,7 @@ function readConfig() {
   const storedSoundEnabled = readStoredSoundEnabled();
   const rawStrings = config.strings && typeof config.strings === "object" ? config.strings : {};
   const storedAnnounceEnabled = readStoredAnnounceEnabled();
+  const storedAutoRefreshEnabled = readStoredAutoRefreshEnabled();
 
   return {
     title: config.title || "",
@@ -3661,6 +3807,7 @@ function readConfig() {
       : DEFAULT_REFRESH_INTERVAL,
     sound: mergeSoundConfig(config.sound, storedSoundEnabled),
     announce: mergeAnnounceConfig(config.announce, storedAnnounceEnabled, rawStrings),
+    autoRefresh: mergeAutoRefreshConfig(config.autoRefresh, storedAutoRefreshEnabled),
     strings: rawStrings,
     metaPath: config.metaPath || ""
   };
@@ -3678,6 +3825,10 @@ function init() {
   }
 
   applyConfig(config, state);
+  const auto = byId("auto");
+  if (auto instanceof HTMLInputElement) {
+    auto.checked = config.autoRefresh;
+  }
   bindStatusFilters(state);
   bindTrackFilters(state);
   bindSearch(state);
@@ -3709,7 +3860,7 @@ function init() {
       return;
     }
 
-    speakAnnouncement(state, {
+    void speakAnnouncement(state, {
       completion: true,
       newlyDoneIds: state.announce.pendingDoneIds
     });
@@ -3759,7 +3910,9 @@ if (typeof globalThis !== "undefined") {
     parseLockTelemetry,
     readInlineMeta,
     readStoredAnnounceEnabled,
+    readStoredAutoRefreshEnabled,
     readStoredSoundEnabled,
+    mergeAutoRefreshConfig,
     resolveSnapshotPayload,
     selectAnnouncementVoice,
     shouldAnnounce,
