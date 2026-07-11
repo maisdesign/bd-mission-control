@@ -436,8 +436,8 @@ if [ -e "$META_PATH" ]; then
 fi
 
 VERSION=$(get_panel_version "$PANEL_PATH")
-printf '%s\n' "JARVIS: mission control wired at $PANEL_PATH"
-printf '%s\n' "JARVIS: refresh with $INSTALLED_REFRESH_PS1 or $INSTALLED_REFRESH_SH"
-printf '%s\n' 'JARVIS: serve the project over HTTP and open the panel in a browser'
-printf '%s\n' "JARVIS: config lives at $CONFIG_PATH"
-printf '%s\n' "JARVIS: panel version v$VERSION"
+printf '%s\n' "TAKY: mission control wired at $PANEL_PATH"
+printf '%s\n' "TAKY: refresh with $INSTALLED_REFRESH_PS1 or $INSTALLED_REFRESH_SH"
+printf '%s\n' 'TAKY: serve the project over HTTP and open the panel in a browser'
+printf '%s\n' "TAKY: config lives at $CONFIG_PATH"
+printf '%s\n' "TAKY: panel version v$VERSION"

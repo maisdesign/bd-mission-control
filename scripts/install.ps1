@@ -384,11 +384,11 @@ try {
   }
 
   $version = Get-PanelVersion $panelPath
-  [Console]::Out.WriteLine("JARVIS: mission control wired at $panelPath")
-  [Console]::Out.WriteLine("JARVIS: refresh with $installedRefreshPs1 or $installedRefreshSh")
-  [Console]::Out.WriteLine("JARVIS: serve the project over HTTP and open the panel in a browser")
-  [Console]::Out.WriteLine("JARVIS: config lives at $configPath")
-  [Console]::Out.WriteLine("JARVIS: panel version v$version")
+  [Console]::Out.WriteLine("TAKY: mission control wired at $panelPath")
+  [Console]::Out.WriteLine("TAKY: refresh with $installedRefreshPs1 or $installedRefreshSh")
+  [Console]::Out.WriteLine("TAKY: serve the project over HTTP and open the panel in a browser")
+  [Console]::Out.WriteLine("TAKY: config lives at $configPath")
+  [Console]::Out.WriteLine("TAKY: panel version v$version")
 } catch {
   [Console]::Error.WriteLine($_.Exception.Message)
   exit 1
