@@ -116,7 +116,7 @@ async function runPowerShellScenario() {
     targetRoot,
   ]);
   assertInstallSucceeded(install, 'install.ps1 fresh install failed');
-  assert.match(install.stdout, /JARVIS:/);
+  assert.match(install.stdout, /TAKY:/);
   assert.equal(extractPanelVersion(install.stdout), '0.1.0');
   assert.equal(await readBytes(panelPath).then((b) => b.length > 0), true);
   assert.equal(await readBytes(refreshPs).then((b) => b.length > 0), true);
@@ -212,7 +212,7 @@ async function runShScenario() {
     posixTargetRoot,
   ]);
   assertInstallSucceeded(install, 'install.sh fresh install failed');
-  assert.match(install.stdout, /JARVIS:/);
+  assert.match(install.stdout, /TAKY:/);
   assert.equal(extractPanelVersion(install.stdout), '0.1.0');
   assert.equal(await readBytes(panelPath).then((b) => b.length > 0), true);
   assert.equal(await readBytes(refreshPs).then((b) => b.length > 0), true);
