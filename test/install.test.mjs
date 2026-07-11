@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
+// never hardcode the live version — the suite must survive release bumps
+const PACKAGE_VERSION = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8')).version;
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -117,7 +119,7 @@ async function runPowerShellScenario() {
   ]);
   assertInstallSucceeded(install, 'install.ps1 fresh install failed');
   assert.match(install.stdout, /TAKY:/);
-  assert.equal(extractPanelVersion(install.stdout), '0.1.0');
+  assert.equal(extractPanelVersion(install.stdout), PACKAGE_VERSION);
   assert.equal(await readBytes(panelPath).then((b) => b.length > 0), true);
   assert.equal(await readBytes(refreshPs).then((b) => b.length > 0), true);
   assert.equal(await readBytes(refreshSh).then((b) => b.length > 0), true);
@@ -176,7 +178,7 @@ async function runPowerShellScenario() {
 
   const sourcePanelPath = join(sourceRoot, 'dist', 'orchestration.html');
   const sourcePanelBefore = await readBytes(sourcePanelPath);
-  const updatedSource = Buffer.from(sourcePanelBefore.toString('utf8').replace('MISSION CONTROL HUD v0.1.0', 'MISSION CONTROL HUD v0.1.1'));
+  const updatedSource = Buffer.from(sourcePanelBefore.toString('utf8').replace(`MISSION CONTROL HUD v${PACKAGE_VERSION}`, 'MISSION CONTROL HUD v9.9.9'));
   await writeFile(sourcePanelPath, updatedSource);
   const updatedRun = run('powershell', [
     '-NoProfile',
@@ -213,7 +215,7 @@ async function runShScenario() {
   ]);
   assertInstallSucceeded(install, 'install.sh fresh install failed');
   assert.match(install.stdout, /TAKY:/);
-  assert.equal(extractPanelVersion(install.stdout), '0.1.0');
+  assert.equal(extractPanelVersion(install.stdout), PACKAGE_VERSION);
   assert.equal(await readBytes(panelPath).then((b) => b.length > 0), true);
   assert.equal(await readBytes(refreshPs).then((b) => b.length > 0), true);
   assert.equal(await readBytes(refreshSh).then((b) => b.length > 0), true);
@@ -258,7 +260,7 @@ async function runShScenario() {
 
   const sourcePanelPath = join(sourceRoot, 'dist', 'orchestration.html');
   const sourcePanelBefore = await readBytes(sourcePanelPath);
-  const updatedSource = Buffer.from(sourcePanelBefore.toString('utf8').replace('MISSION CONTROL HUD v0.1.0', 'MISSION CONTROL HUD v0.1.1'));
+  const updatedSource = Buffer.from(sourcePanelBefore.toString('utf8').replace(`MISSION CONTROL HUD v${PACKAGE_VERSION}`, 'MISSION CONTROL HUD v9.9.9'));
   await writeFile(sourcePanelPath, updatedSource);
   const updatedRun = run('sh', [
     posixJoin(posixSourceRoot, 'scripts', 'install.sh'),
