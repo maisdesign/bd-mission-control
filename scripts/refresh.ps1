@@ -83,7 +83,7 @@ function Test-ReparsePointAncestors {
 
 function Assert-SafeWriteTarget {
   param([string]$PathValue)
-  if (Test-ReparsePointPath $PathValue -or Test-ReparsePointAncestors $PathValue) {
+  if ((Test-ReparsePointPath $PathValue) -or (Test-ReparsePointAncestors $PathValue)) {
     throw "refusing to write through a reparse point: $PathValue"
   }
 }
