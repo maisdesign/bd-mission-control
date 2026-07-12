@@ -706,10 +706,10 @@ function syncSoundToggleUi(state) {
   }
 
   button.hidden = false;
-  const baseLabel = button.dataset.a11yBaseLabel || button.textContent || "Sound";
+  const baseLabel = getControlBaseLabel(button, "Sound");
   setAriaBoolean(button, "aria-pressed", state.sound.enabled);
   setAccessibleLabel(button, `${baseLabel}: ${state.sound.enabled ? "on" : "off"}`);
-  button.textContent = state.sound.enabled ? "ON" : "OFF";
+  setControlText(button, state.sound.enabled ? "ON" : "OFF");
   setTooltip(button, state.sound.enabled ? "Completion chime on" : "Completion chime off");
 }
 
@@ -769,17 +769,17 @@ function syncAnnounceUi(state) {
 
   if (speakButton) {
     speakButton.hidden = false;
-    const baseLabel = speakButton.dataset.a11yBaseLabel || speakButton.textContent || "Report";
+    const baseLabel = getControlBaseLabel(speakButton, "Report");
     setAccessibleLabel(speakButton, baseLabel);
     setTooltip(speakButton, "Speak status report");
   }
 
   if (toggleButton) {
     toggleButton.hidden = false;
-    const baseLabel = toggleButton.dataset.a11yBaseLabel || toggleButton.textContent || "Voice";
+    const baseLabel = getControlBaseLabel(toggleButton, "Voice");
     setAriaBoolean(toggleButton, "aria-pressed", state.announce.enabled);
     setAccessibleLabel(toggleButton, `${baseLabel}: ${state.announce.enabled ? "on" : "off"}`);
-    toggleButton.textContent = state.announce.enabled ? "ON" : "OFF";
+    setControlText(toggleButton, state.announce.enabled ? "ON" : "OFF");
     setTooltip(toggleButton, state.announce.enabled ? "Voice announcer on" : "Voice announcer off");
   }
 }
@@ -983,6 +983,31 @@ function getUiText(strings, key, fallback) {
 function setAccessibleLabel(node, label) {
   if (node && label) {
     node.setAttribute("aria-label", label);
+  }
+}
+
+function getControlTextNode(button) {
+  if (!(button instanceof Element)) {
+    return null;
+  }
+
+  return button.querySelector(".hud-btn-text");
+}
+
+function getControlBaseLabel(button, fallback) {
+  const textNode = getControlTextNode(button);
+  return button?.dataset?.a11yBaseLabel || textNode?.textContent || fallback;
+}
+
+function setControlText(button, value) {
+  const textNode = getControlTextNode(button);
+  if (textNode) {
+    textNode.textContent = value;
+    return;
+  }
+
+  if (button) {
+    button.textContent = value;
   }
 }
 
@@ -2449,13 +2474,13 @@ function syncControlAccessibility(state) {
   setAccessibleLabel(search, getUiText(strings, "search_placeholder", "Search issues"));
   setAccessibleLabel(auto, getUiText(strings, "auto", "Live refresh"));
   if (announceButton) {
-    announceButton.dataset.a11yBaseLabel = getUiText(strings, "announce_button", announceButton.textContent || "Report");
+    announceButton.dataset.a11yBaseLabel = getUiText(strings, "announce_button", getControlBaseLabel(announceButton, "Report"));
   }
   if (announceToggle) {
-    announceToggle.dataset.a11yBaseLabel = getUiText(strings, "announce_toggle", announceToggle.textContent || "Voice");
+    announceToggle.dataset.a11yBaseLabel = getUiText(strings, "announce_toggle", getControlBaseLabel(announceToggle, "Voice"));
   }
   if (soundToggle) {
-    soundToggle.dataset.a11yBaseLabel = getUiText(strings, "sound", soundToggle.textContent || "Sound");
+    soundToggle.dataset.a11yBaseLabel = getUiText(strings, "sound", getControlBaseLabel(soundToggle, "Sound"));
   }
   if (themeToggle) {
     themeToggle.dataset.a11yBaseLabel = getUiText(strings, "theme", themeToggle.textContent || "Theme");
