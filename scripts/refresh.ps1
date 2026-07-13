@@ -1,15 +1,20 @@
 param(
   [string]$BeadsDir,
   [string]$Out = './orchestration-data.js',
-  [switch]$NoBdEnrich
+  [switch]$NoBdEnrich,
+  [switch]$AutoExport
 )
 
 function Show-Usage {
   @'
 Usage:
-  powershell -NoProfile -File scripts/refresh.ps1 [-BeadsDir <path>] [-Out <path>] [-NoBdEnrich]
+  powershell -NoProfile -File scripts/refresh.ps1 [-BeadsDir <path>] [-Out <path>] [-NoBdEnrich] [-AutoExport]
 
 Behavior:
+  - With -AutoExport (and bd on PATH): runs `bd export` (never --all, so memories/infra
+    stay excluded) into .beads/issues.jsonl first, so the snapshot reflects bd's real
+    current state instead of whatever issues.jsonl happened to hold already. Off by
+    default so existing callers/tests keep today's behavior unchanged.
   - Finds .beads/issues.jsonl by explicit -BeadsDir or by walking up from cwd.
   - Writes a UTF-8 no-BOM orchestration-data.js snapshot to -Out.
 '@
@@ -51,6 +56,80 @@ function Find-IssuesPathUpward {
     $current = $parent
   }
   return $null
+}
+
+function Find-ProjectDirUpward {
+  param([string]$StartDir)
+  $current = Resolve-AbsolutePath $StartDir
+  while ($true) {
+    if (Test-Path -LiteralPath (Join-Path $current '.beads') -PathType Container) {
+      return $current
+    }
+    $parent = Split-Path -Path $current -Parent
+    if ([string]::IsNullOrEmpty($parent) -or $parent -eq $current) {
+      break
+    }
+    $current = $parent
+  }
+  return $null
+}
+
+function Resolve-BeadsExportTarget {
+  # Mirrors Find-IssuesPathFromBeadsDir's dual meaning for -BeadsDir (either the
+  # .beads folder itself, or a project root containing .beads) so auto-export
+  # writes to the same place a later read would look for it. issues.jsonl may
+  # not exist yet (that's the point of exporting), so this can't disambiguate
+  # by checking for the file the way the read-side function does.
+  param([string]$DirValue)
+  $dir = Resolve-AbsolutePath $DirValue
+  if ((Split-Path -Path $dir -Leaf) -eq '.beads') {
+    return @{ BeadsDir = $dir; ProjectDir = (Split-Path -Path $dir -Parent) }
+  }
+  $nested = Join-Path $dir '.beads'
+  if (Test-Path -LiteralPath $nested -PathType Container) {
+    return @{ BeadsDir = $nested; ProjectDir = $dir }
+  }
+  # Neither: fall back to treating the given dir as the beads dir directly,
+  # matching Find-IssuesPathFromBeadsDir's "direct" precedence.
+  return @{ BeadsDir = $dir; ProjectDir = $dir }
+}
+
+function Invoke-AutoExport {
+  param([string]$BeadsDirValue)
+  if (-not (Get-Command bd -ErrorAction SilentlyContinue)) {
+    [Console]::Error.WriteLine('warning: -AutoExport requested but bd is not on PATH; using issues.jsonl as-is')
+    return
+  }
+  $beadsDir = $null
+  $projectDir = $null
+  if (-not [string]::IsNullOrEmpty($BeadsDirValue)) {
+    $resolved = Resolve-BeadsExportTarget $BeadsDirValue
+    $beadsDir = $resolved.BeadsDir
+    $projectDir = $resolved.ProjectDir
+  } else {
+    $projectDir = Find-ProjectDirUpward (Get-Location).Path
+    if (-not [string]::IsNullOrEmpty($projectDir)) {
+      $beadsDir = Join-Path $projectDir '.beads'
+    }
+  }
+  if ([string]::IsNullOrEmpty($beadsDir)) {
+    [Console]::Error.WriteLine('warning: -AutoExport requested but no .beads directory was found; using issues.jsonl as-is')
+    return
+  }
+  $exportTarget = Join-Path $beadsDir 'issues.jsonl'
+  try {
+    # Never --all: that also pulls in bd remember memories, which routinely hold
+    # agent-context notes never meant to leave the machine. -C scopes bd's own
+    # DB discovery to the resolved project dir instead of the ambient cwd, so an
+    # explicit -BeadsDir for a different project exports THAT project's data,
+    # not whatever bd would find walking up from wherever this script runs.
+    & bd -C $projectDir export -o $exportTarget 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      [Console]::Error.WriteLine('warning: bd export failed; using issues.jsonl as-is')
+    }
+  } catch {
+    [Console]::Error.WriteLine('warning: bd export failed; using issues.jsonl as-is')
+  }
 }
 
 function Test-ReparsePointPath {
@@ -122,6 +201,10 @@ function Sanitize-MemoryValue {
     $text = $text.Substring(0, 2000)
   }
   return $text
+}
+
+if ($AutoExport) {
+  Invoke-AutoExport $BeadsDir
 }
 
 $issuesPath = $null

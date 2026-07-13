@@ -203,7 +203,9 @@ Zero-dependency policy is law. Keep it browser-native, Node-native, and auditabl
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[PolyForm Shield 1.0.0](https://polyformproject.org/licenses/shield/1.0.0) — free to use, modify, and distribute for virtually any purpose, *except* building or running a product that competes with this project or with the licensor's own offerings. See [LICENSE](LICENSE) for the full terms.
+
+If this is useful to you, a mention or link back is appreciated but never required.
 
 ## Italiano
 
@@ -212,3 +214,5 @@ Funziona bene servito via HTTP, dove prova a leggere `../.beads/issues.jsonl` in
 Se apri il file con `file://`, genera prima `orchestration-data.js` con `scripts/refresh.ps1` o `scripts/refresh.sh`.
 Gli script di installazione copiano il pannello e i refresh script, ma preservano `orchestration.config.js` gia esistente.
 Demo pubblica: [maisdesign.github.io/bd-mission-control](https://maisdesign.github.io/bd-mission-control/).
+
+**Licenza:** [PolyForm Shield 1.0.0](https://polyformproject.org/licenses/shield/1.0.0) — vedi [LICENSE](LICENSE).

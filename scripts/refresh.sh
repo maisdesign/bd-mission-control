@@ -3,9 +3,13 @@
 usage() {
   cat <<'EOF'
 Usage:
-  sh scripts/refresh.sh [--beads-dir <path>] [--out <path>] [--no-bd-enrich]
+  sh scripts/refresh.sh [--beads-dir <path>] [--out <path>] [--no-bd-enrich] [--auto-export]
 
 Behavior:
+  - With --auto-export (and bd on PATH): runs `bd export` (never --all, so memories/infra
+    stay excluded) into .beads/issues.jsonl first, so the snapshot reflects bd's real
+    current state instead of whatever issues.jsonl happened to hold already. Off by
+    default so existing callers/tests keep today's behavior unchanged.
   - Finds .beads/issues.jsonl by explicit --beads-dir or by walking up from cwd.
   - Writes a UTF-8 no-BOM orchestration-data.js snapshot to --out.
 EOF
@@ -199,9 +203,89 @@ find_issues_upward() {
   done
 }
 
+find_project_dir_upward() {
+  dir=$(pwd -P) || return 1
+  while :; do
+    if [ -d "$dir/.beads" ]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    parent=$(dirname "$dir")
+    if [ "$parent" = "$dir" ]; then
+      return 1
+    fi
+    dir=$parent
+  done
+}
+
+# Mirrors find_issues_in_dir's dual meaning for --beads-dir (either the .beads
+# folder itself, or a project root containing .beads) so auto-export writes to
+# the same place a later read would look for it. issues.jsonl may not exist
+# yet (that's the point of exporting), so this can't disambiguate by checking
+# for the file the way find_issues_in_dir does. Sets RESOLVED_BEADS_DIR and
+# RESOLVED_PROJECT_DIR directly (no subshell / command substitution) rather
+# than returning a combined string to split — a Windows path here can contain
+# spaces, which a naive "beads_dir project_dir" split would corrupt.
+resolve_beads_export_target() {
+  dir=$1
+  base=$(basename "$dir")
+  if [ "$base" = ".beads" ]; then
+    RESOLVED_BEADS_DIR=$dir
+    RESOLVED_PROJECT_DIR=$(dirname "$dir")
+    return 0
+  fi
+  if [ -d "$dir/.beads" ]; then
+    RESOLVED_BEADS_DIR="$dir/.beads"
+    RESOLVED_PROJECT_DIR=$dir
+    return 0
+  fi
+  # Neither: fall back to treating the given dir as the beads dir directly,
+  # matching find_issues_in_dir's "direct" precedence.
+  RESOLVED_BEADS_DIR=$dir
+  RESOLVED_PROJECT_DIR=$dir
+}
+
+do_auto_export() {
+  if ! command -v bd >/dev/null 2>&1; then
+    printf '%s\n' 'warning: --auto-export requested but bd is not on PATH; using issues.jsonl as-is' >&2
+    return 0
+  fi
+  if [ -n "$BEADS_DIR" ]; then
+    beads_dir_abs=$(resolve_dir "$BEADS_DIR") || beads_dir_abs=
+    if [ -n "$beads_dir_abs" ]; then
+      resolve_beads_export_target "$beads_dir_abs"
+      beads_dir=$RESOLVED_BEADS_DIR
+      project_dir=$RESOLVED_PROJECT_DIR
+    else
+      beads_dir=
+      project_dir=
+    fi
+  else
+    project_dir=$(find_project_dir_upward) || project_dir=
+    if [ -n "$project_dir" ]; then
+      beads_dir="$project_dir/.beads"
+    else
+      beads_dir=
+    fi
+  fi
+  if [ -z "$beads_dir" ]; then
+    printf '%s\n' 'warning: --auto-export requested but no .beads directory was found; using issues.jsonl as-is' >&2
+    return 0
+  fi
+  # Never --all: that also pulls in bd remember memories, which routinely hold
+  # agent-context notes never meant to leave the machine. -C scopes bd's own DB
+  # discovery to the resolved project dir instead of the ambient cwd, so an
+  # explicit --beads-dir for a different project exports THAT project's data,
+  # not whatever bd would find walking up from wherever this script runs.
+  if ! bd -C "$project_dir" export -o "$beads_dir/issues.jsonl" 2>/dev/null; then
+    printf '%s\n' 'warning: bd export failed; using issues.jsonl as-is' >&2
+  fi
+}
+
 BEADS_DIR=
 OUT=./orchestration-data.js
 NO_BD_ENRICH=0
+AUTO_EXPORT=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -227,6 +311,10 @@ while [ $# -gt 0 ]; do
       NO_BD_ENRICH=1
       shift
       ;;
+    --auto-export|-AutoExport)
+      AUTO_EXPORT=1
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -238,6 +326,10 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$AUTO_EXPORT" -eq 1 ]; then
+  do_auto_export
+fi
 
 if [ -n "$BEADS_DIR" ]; then
   beads_abs=$(resolve_dir "$BEADS_DIR") || {
