@@ -61,12 +61,11 @@
         <div id="ring-container">
           <div
             id="ring"
-            style="--ring-percent: 70;"
             role="progressbar"
             aria-label="Completion progress"
             aria-valuemin="0"
             aria-valuemax="100"
-            aria-valuenow="70"
+            aria-valuenow="0"
           >
             <div class="ring-ticks ring-ticks-outer" aria-hidden="true"></div>
             <div class="ring-ticks ring-ticks-inner" aria-hidden="true"></div>
@@ -75,7 +74,7 @@
               <circle class="ring-progress" cx="50" cy="50" r="42"></circle>
             </svg>
             <div class="ring-core" aria-hidden="true"></div>
-            <div id="ringpct">70%</div>
+            <div id="ringpct">0%</div>
           </div>
         </div>
 
@@ -165,7 +164,7 @@
       <span data-i18n="footer_text">TAKY MISSION CONTROL HUD v{{VERSION}} • TELEMETRY ENGINE SECURE</span>
     </footer>
 
-    <div id="toast" role="status" aria-live="polite" aria-atomic="true" style="display: none;">
+    <div id="toast" role="status" aria-live="polite" aria-atomic="true">
       <span class="toast-icon" aria-hidden="true">⚡</span>
       <span class="toast-message" data-i18n="toast_message">Telemetry connection established.</span>
     </div>

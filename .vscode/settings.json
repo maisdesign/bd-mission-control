@@ -1,0 +1,9 @@
+{
+  // src/panel.template.html embeds {{CSS}}/{{ENGINE_JS}}/{{PANEL_JS}} build-time
+  // placeholders inside real <style>/<script> tags (see build.mjs). The editor's
+  // CSS/JS language services try to parse those placeholders as literal code and
+  // report false-positive syntax errors. Disabled here, scoped to this repo only.
+  "css.validate": false,
+  "html.validate.styles": false,
+  "html.validate.scripts": false
+}

@@ -1,4 +1,5 @@
-import { readFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, mkdtemp, writeFile, chmod } from 'node:fs/promises';
+import { existsSync, realpathSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -55,6 +56,79 @@ function normalizeSourcePath(filePath) {
   return filePath
     .replace(/\\/g, '/')
     .replace(/^([A-Za-z]):\//, (_, drive) => `/${drive.toLowerCase()}/`);
+}
+
+// Records every invocation (argv) to BD_STUB_RECORDER, then writes a marker
+// issue to whatever path follows -o, so -AutoExport/--auto-export can be
+// exercised end-to-end (including the exact args passed to bd) without a
+// real Dolt/bd database.
+const STUB_BD_SOURCE = `
+import { appendFileSync, writeFileSync } from 'node:fs';
+
+const args = process.argv.slice(2);
+const recorder = process.env.BD_STUB_RECORDER;
+if (recorder) {
+  appendFileSync(recorder, JSON.stringify(args) + '\\n', 'utf8');
+}
+
+function flagValue(flag) {
+  const idx = args.indexOf(flag);
+  return idx >= 0 && idx + 1 < args.length ? args[idx + 1] : null;
+}
+
+const outPath = flagValue('-o');
+if (outPath) {
+  writeFileSync(
+    outPath,
+    '{"id":"stub-exported","title":"stub bd export ran","status":"open","issue_type":"task"}\\n',
+    'utf8'
+  );
+}
+`;
+
+async function writeStubBd(dir) {
+  const stubScript = resolve(dir, 'stub-bd.mjs');
+  await writeFile(stubScript, STUB_BD_SOURCE, 'utf8');
+
+  // Windows (PowerShell): PATHEXT-resolved .cmd launcher.
+  await writeFile(
+    resolve(dir, 'bd.cmd'),
+    '@echo off\r\nnode "%~dp0stub-bd.mjs" %*\r\n',
+    'utf8'
+  );
+
+  // POSIX (sh): plain extensionless executable with a shebang.
+  const shLauncher = resolve(dir, 'bd');
+  await writeFile(shLauncher, '#!/bin/sh\nexec node "$(dirname "$0")/stub-bd.mjs" "$@"\n', 'utf8');
+  await chmod(shLauncher, 0o755);
+}
+
+async function readRecordedInvocations(recorderPath) {
+  if (!existsSync(recorderPath)) {
+    return [];
+  }
+  const text = await awaitableRead(recorderPath);
+  return text
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line));
+}
+
+function flagValue(argv, flag) {
+  const idx = argv.indexOf(flag);
+  return idx >= 0 && idx + 1 < argv.length ? argv[idx + 1] : null;
+}
+
+// Windows can expose the same directory under both its long name and an 8.3
+// short name (e.g. TEMP resolving to `...\MARCOC~1\...` while PowerShell's
+// own GetFullPath returns `...\MarcoCardia\...`) — resolve through the real
+// filesystem entry so path comparisons aren't tripped up by that, not just
+// string-normalize.
+function canonicalPath(p) {
+  // realpathSync's default (JS-based) implementation does not resolve
+  // Windows 8.3 short names (e.g. `MARCOC~1`) to their long form; .native
+  // (the real OS syscall) does.
+  return realpathSync.native(resolve(p));
 }
 
 test('refresh scripts generate equivalent string-payload snapshots', async () => {
@@ -200,6 +274,154 @@ test('refresh scripts keep malicious JSONL inert when evaluated', async () => {
     assert.equal(context.window.BMC_SNAPSHOT.issues_jsonl.includes(attackLine), true);
     assert.equal(context.window.BMC_SNAPSHOT.issues_jsonl.includes('\u0001'), true);
     assert.equal(JSON.parse(context.window.BMC_META_JSON).waves.demo.subtitle, 'Multi-line\nmeta');
+  }
+});
+
+test('-AutoExport / --auto-export resolves -BeadsDir to the correct .beads location and project context', async () => {
+  // Regression test: an earlier version of -AutoExport/--auto-export treated
+  // an explicit -BeadsDir value as the export directory verbatim, without
+  // replicating Find-IssuesPathFromBeadsDir's/find_issues_in_dir's existing
+  // dual meaning (either the .beads folder itself, or a project root
+  // containing .beads). That wrote a stray issues.jsonl at the project root
+  // instead of inside .beads, and ran `bd export` from the ambient cwd
+  // instead of the resolved project, so an explicit -BeadsDir for a
+  // different project could silently export the wrong project's data. Both
+  // are checked here via a stub `bd` that records its exact argv.
+  const ps1 = hasPowerShell();
+  const sh1 = hasSh();
+
+  const stubDir = await mkdtemp(join(tmpdir(), 'bmc-stub-bd-'));
+  await writeStubBd(stubDir);
+
+  async function runProjectRootCase(label, beadsDirValue, expectSubdir) {
+    const projectRoot = await mkdtemp(join(tmpdir(), `bmc-autoexport-${label}-`));
+    const beadsSubdir = join(projectRoot, '.beads');
+    await mkdir(beadsSubdir, { recursive: true });
+    // Seed a stale issue so a successful stub export (which overwrites this
+    // file) is distinguishable from just re-reading what was already there.
+    await writeFile(
+      join(beadsSubdir, 'issues.jsonl'),
+      '{"id":"stale","title":"stale","status":"open","issue_type":"task"}\n',
+      'utf8'
+    );
+
+    const recorderPath = join(projectRoot, 'invocations.jsonl');
+    const outPath = join(projectRoot, 'snapshot-out.js');
+    const target = beadsDirValue === 'root' ? projectRoot : beadsSubdir;
+
+    return { projectRoot, beadsSubdir, recorderPath, outPath, target, expectSubdir };
+  }
+
+  if (ps1) {
+    for (const [label, mode] of [['ps-root', 'root'], ['ps-beadsdir', 'beadsdir']]) {
+      const c = await runProjectRootCase(label, mode);
+      const env = {
+        ...process.env,
+        PATH: stubDir + ';' + process.env.PATH,
+        BD_STUB_RECORDER: c.recorderPath,
+      };
+
+      const result = run(
+        'powershell',
+        [
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          'scripts/refresh.ps1',
+          '-BeadsDir',
+          c.target,
+          '-Out',
+          c.outPath,
+          '-NoBdEnrich',
+          '-AutoExport',
+        ],
+        { env }
+      );
+      assert.equal(result.status, 0, result.stderr);
+
+      const invocations = await readRecordedInvocations(c.recorderPath);
+      assert.equal(invocations.length, 1, 'bd should be invoked exactly once');
+      const argv = invocations[0];
+      assert.equal(
+        canonicalPath(flagValue(argv, '-o')),
+        canonicalPath(join(c.beadsSubdir, 'issues.jsonl')),
+        `[${label}] bd export -o should target .beads/issues.jsonl, not a stray root-level file`
+      );
+      assert.equal(
+        canonicalPath(flagValue(argv, '-C')),
+        canonicalPath(c.projectRoot),
+        `[${label}] bd -C should scope to the resolved project dir, not the ambient cwd`
+      );
+
+      assert.equal(
+        existsSync(join(c.projectRoot, 'issues.jsonl')),
+        false,
+        `[${label}] no stray issues.jsonl should be created at the project root`
+      );
+
+      const generated = await awaitableRead(c.outPath);
+      const snapshot = parseSnapshot(generated);
+      assert.match(
+        snapshot.issues_jsonl,
+        /stub-exported/,
+        `[${label}] snapshot should reflect the freshly (stub-)exported file, not the stale seed`
+      );
+    }
+  }
+
+  if (sh1) {
+    for (const [label, mode] of [['sh-root', 'root'], ['sh-beadsdir', 'beadsdir']]) {
+      const c = await runProjectRootCase(label, mode);
+      const env = {
+        ...process.env,
+        PATH: stubDir + ':' + process.env.PATH,
+        BD_STUB_RECORDER: c.recorderPath,
+      };
+
+      const result = run(
+        'sh',
+        [
+          'scripts/refresh.sh',
+          '--beads-dir',
+          posixPath(c.target),
+          '--out',
+          posixPath(c.outPath),
+          '--no-bd-enrich',
+          '--auto-export',
+        ],
+        { env }
+      );
+      assert.equal(result.status, 0, result.stderr);
+
+      const invocations = await readRecordedInvocations(c.recorderPath);
+      assert.equal(invocations.length, 1, 'bd should be invoked exactly once');
+      const argv = invocations[0];
+      assert.equal(
+        canonicalPath(flagValue(argv, '-o')),
+        canonicalPath(join(c.beadsSubdir, 'issues.jsonl')),
+        `[${label}] bd export -o should target .beads/issues.jsonl, not a stray root-level file`
+      );
+      assert.equal(
+        canonicalPath(flagValue(argv, '-C')),
+        canonicalPath(c.projectRoot),
+        `[${label}] bd -C should scope to the resolved project dir, not the ambient cwd`
+      );
+
+      assert.equal(
+        existsSync(join(c.projectRoot, 'issues.jsonl')),
+        false,
+        `[${label}] no stray issues.jsonl should be created at the project root`
+      );
+
+      const generated = await awaitableRead(c.outPath);
+      const snapshot = parseSnapshot(generated);
+      assert.match(
+        snapshot.issues_jsonl,
+        /stub-exported/,
+        `[${label}] snapshot should reflect the freshly (stub-)exported file, not the stale seed`
+      );
+    }
   }
 });
 
