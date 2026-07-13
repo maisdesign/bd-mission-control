@@ -500,6 +500,18 @@ main,
   text-transform: uppercase;
 }
 
+.hud-project {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--bmc-text-primary);
+}
+
+.hud-project[hidden] {
+  display: none;
+}
+
 .hud-subtitle {
   margin: 0;
   font-size: 0.75rem;
