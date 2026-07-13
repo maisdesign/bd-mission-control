@@ -2579,7 +2579,32 @@ function applyConfig(config, state) {
 
   applyAccent(config.accent);
   applyI18n(state.strings, config.title);
+  applyProjectName(config.title);
   setThemeMode(getThemeMode());
+}
+
+function deriveProjectName(configTitle) {
+  if (typeof configTitle !== "string") {
+    return "";
+  }
+  return configTitle.replace(/\s+mission control\s*$/i, "").trim();
+}
+
+function applyProjectName(configTitle) {
+  const node = byId("hud-project");
+  if (!node) {
+    return;
+  }
+
+  const name = deriveProjectName(configTitle);
+  if (!name) {
+    node.hidden = true;
+    node.textContent = "";
+    return;
+  }
+
+  node.textContent = name;
+  node.hidden = false;
 }
 
 function readConfig() {
