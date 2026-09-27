@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,18 +23,87 @@ async function until(predicate, detail, timeout = 15000) {
   assert.fail(`timed out: ${typeof detail === 'function' ? detail() : detail}`);
 }
 
-async function workspace(t) {
+function workspacePids(root, timeout) {
+  const windows = process.platform === 'win32';
+  // Pass the path in the environment so the query itself cannot match it.
+  const script = `
+    $ErrorActionPreference = 'Stop'
+    ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_Process | Where-Object {
+      $_.ProcessId -ne $PID -and $_.ProcessId -ne ${process.pid} -and $_.CommandLine -and
+      $_.CommandLine.IndexOf($env:BMC_FOLLOW_WORKSPACE, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    } | ForEach-Object { [int]$_.ProcessId })
+  `;
+  const result = spawnSync(windows ? 'powershell.exe' : 'ps', windows
+    ? ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]
+    : ['-A', '-o', 'pid=', '-o', 'args='], {
+    encoding: 'utf8', windowsHide: true, timeout,
+    env: { ...process.env, BMC_FOLLOW_WORKSPACE: root },
+  });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, `workspace process query failed: ${result.stderr}`);
+  if (windows) return JSON.parse(result.stdout.trim());
+  return result.stdout.split('\n').flatMap(line => {
+    const match = line.match(/^\s*(\d+)\s+(.*)$/);
+    return match && Number(match[1]) !== process.pid && match[2].includes(root) ? [Number(match[1])] : [];
+  });
+}
+
+async function waitForWorkspaceExit(root) {
+  const deadline = Date.now() + 5000;
+  let pids = [];
+  do {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    try { pids = workspacePids(root, remaining); }
+    catch (error) {
+      throw new Error(`cannot verify process exit for ${root}; last leftover PIDs: ${pids.join(', ') || 'unknown'}`, { cause: error });
+    }
+    if (!pids.length) return;
+    await delay(Math.min(100, Math.max(0, deadline - Date.now())));
+  } while (Date.now() < deadline);
+  assert.fail(`workspace processes still alive after 5 s: ${root}; leftover PIDs: ${pids.join(', ')}`);
+}
+
+async function clearReadonly(root) {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) await clearReadonly(path);
+    else if (entry.isFile()) await chmod(path, 0o666);
+  }
+}
+
+async function workspace(t, realProcesses = false) {
   const root = await mkdtemp(join(tmpdir(), 'bmc-follow-'));
   const cleanups = [];
   t.after(async () => {
-    try { for (const cleanup of cleanups.reverse()) await cleanup(); }
-    finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+    const errors = [];
+    for (const cleanup of cleanups.reverse()) {
+      try { await cleanup(); } catch (error) { errors.push(error); }
+    }
+    try {
+      if (realProcesses) await waitForWorkspaceExit(root);
+      if (process.platform === 'win32') await clearReadonly(root);
+      // Node uses linear backoff: 200 * (1 + ... + 8) = 7.2 s.
+      await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 200 });
+    } catch (error) { errors.push(error); }
+    if (errors.length) throw new AggregateError(errors, `workspace cleanup failed: ${errors.map(error => error.message).join('; ')}`);
   });
   const beadsDir = join(root, '.beads');
   const checkpoint = join(root, 'checkpoint.json');
   await mkdir(beadsDir);
   return { root, beadsDir, checkpoint, bd: 'mock-bd', debounceMs: 20, cleanups };
 }
+
+test('workspace teardown removes nested read-only git object files', async t => {
+  const options = await workspace(t);
+  const objects = join(options.root, '.git', 'objects', 'ab');
+  await mkdir(objects, { recursive: true });
+  const object = join(objects, 'readonly-object');
+  await writeFile(object, 'test object');
+  await chmod(object, 0o444);
+  // Hooks run in registration order, so inspect after workspace()'s cleanup.
+  t.after(async () => assert.rejects(readdir(options.root), { code: 'ENOENT' }));
+});
 
 async function textOrMissing(path) {
   try { return await readFile(path, 'utf8'); } catch (error) {
@@ -75,7 +144,8 @@ function mock(t, options, overrides = {}) {
   const calls = [];
   const logs = [];
   const live = [];
-  const signals = new EventEmitter();
+  const signals = overrides.signals ?? new EventEmitter();
+  const stdin = new PassThrough();
   const spawnChild = (binary, args, spawnOptions) => {
     const child = fakeChild();
     const call = { binary, args, spawnOptions, child };
@@ -96,13 +166,13 @@ function mock(t, options, overrides = {}) {
     });
     return child;
   };
-  const result = follow(options, { spawnChild, log: line => logs.push(line), signals });
+  const result = follow(options, { spawnChild, log: line => logs.push(line), signals, stdin });
   options.cleanups.push(async () => {
     signals.emit('SIGTERM');
     await result;
     assert.ok(calls.every(call => call.child.closed), 'no child left alive');
   });
-  return { calls, logs, live, result, signals };
+  return { calls, logs, live, result, signals, stdin };
 }
 
 test('CLI defaults, paths, version floor and invalid inputs', () => {
@@ -111,6 +181,8 @@ test('CLI defaults, paths, version floor and invalid inputs', () => {
   assert.equal(options.bd, 'bd');
   assert.equal(options.beadsDir, resolve('sample/.beads'));
   assert.equal(options.checkpoint, resolve('checkpoint'));
+  assert.equal(options.stopOnStdinEof, false);
+  assert.equal(optionsFromArgs(['--beads-dir', 'sample/.beads', '--checkpoint', 'checkpoint', '--stop-on-stdin-eof']).stopOnStdinEof, true);
   assert.equal(optionsFromArgs(['--help']), null);
   for (const version of ['1.3.0', '1.3.1', '1.4.0', '2.0.0']) assert.ok(supportedVersion(`bd version ${version}`));
   for (const version of ['1.1.0', '1.2.99', '0.9.0', '1.3.0-rc.1', 'unknown']) assert.ok(!supportedVersion(version));
@@ -250,19 +322,89 @@ test('unexpected successful tail exit is an error, not a silent stalled follower
   assert.match(run.logs.at(-1), /stopped unexpectedly/);
 });
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  test(`${signal} stops the bd child and exits 0 with unexported events replayable`, async t => {
+function ipcSignals(connected = true) {
+  const signals = new EventEmitter();
+  signals.send = () => {};
+  signals.connected = connected;
+  signals.disconnect = () => {
+    signals.connected = false;
+    signals.emit('disconnect');
+  };
+  return signals;
+}
+
+function requestStop(run, source) {
+  if (source === 'IPC message') run.signals.emit('message', { type: 'stop' });
+  else if (source === 'IPC disconnect') run.signals.disconnect();
+  else if (source === 'stdin EOF') run.stdin.end();
+  else run.signals.emit(source);
+}
+
+for (const source of ['SIGINT', 'SIGTERM', 'IPC message', 'IPC disconnect', 'stdin EOF']) {
+  test(`${source} stops the bd child and exits 0 with unexported events replayable`, async t => {
     const options = await workspace(t);
     options.debounceMs = 1000;
-    const run = mock(t, options);
+    options.stopOnStdinEof = source === 'stdin EOF';
+    const run = mock(t, options, { signals: source.startsWith('IPC') ? ipcSignals() : undefined });
     await until(() => run.live.length, 'follower started');
     run.live[0].stdout.write('{"seq":1}\n');
-    run.signals.emit(signal);
+    requestStop(run, source);
     assert.equal(await run.result, 0);
     assert.ok(run.live[0].signals.includes('SIGTERM'));
     assert.equal(await seqAt(options.checkpoint), 0);
+    for (const event of ['SIGINT', 'SIGTERM', 'message', 'disconnect']) assert.equal(run.signals.listenerCount(event), 0);
+    assert.equal(run.stdin.listenerCount('end'), 0);
+    assert.notEqual(run.stdin.readableFlowing, true);
   });
 }
+
+for (const source of ['IPC message', 'IPC disconnect', 'stdin EOF']) {
+  test(`${source} waits for both the tail and an in-flight export to close`, async t => {
+    const options = await workspace(t);
+    await writeFile(options.checkpoint, '{"seq":1}\n');
+    options.stopOnStdinEof = source === 'stdin EOF';
+    let exporting;
+    const run = mock(t, options, { head: 1, signals: ipcSignals(), handle: call => {
+      if (call.args[0] !== 'export') return false;
+      exporting = call.child;
+      return true;
+    } });
+    await until(() => run.live.length, 'follower started');
+    run.live[0].stdout.write('{"seq":2}\n');
+    await until(() => exporting, 'export started');
+    // Keep both close events under test control after stop requests termination.
+    for (const child of [run.live[0], exporting]) child.kill = signal => { child.signals.push(signal); return true; };
+    let settled = false;
+    run.result.then(() => { settled = true; });
+    requestStop(run, source);
+    await until(() => exporting.signals.length && run.live[0].signals.length, 'both children asked to stop');
+    run.live[0].finish(null, 'SIGTERM');
+    await new Promise(resolveImmediate => setImmediate(resolveImmediate));
+    assert.equal(settled, false, 'export has not closed yet');
+    exporting.finish(null, 'SIGTERM');
+    assert.equal(await run.result, 0);
+    assert.equal(await seqAt(options.checkpoint), 1);
+  });
+}
+
+test('IPC loss before startup stops without spawning a child', async t => {
+  const options = await workspace(t);
+  const run = mock(t, options, { signals: ipcSignals(false) });
+  assert.equal(await run.result, 0);
+  assert.equal(run.calls.length, 0);
+});
+
+test('unrelated IPC messages and stdin EOF without the flag do not stop following', async t => {
+  const options = await workspace(t);
+  const run = mock(t, options, { signals: ipcSignals() });
+  await until(() => run.live.length, 'follower started');
+  for (const message of [null, 'stop', {}, { type: 'status' }]) run.signals.emit('message', message);
+  run.stdin.resume();
+  run.stdin.end();
+  run.live[0].stdout.write('{"seq":1}\n');
+  await until(async () => await seqAt(options.checkpoint) === 1, 'still exporting');
+  assert.equal(run.live[0].closed, false);
+});
 
 test('shutdown escalates if a child ignores SIGTERM', async t => {
   const options = await workspace(t);
@@ -284,7 +426,7 @@ function command(root, binary, args) {
 }
 
 async function realWorkspace(t, journal = true) {
-  const options = await workspace(t);
+  const options = await workspace(t, true);
   command(options.root, 'git', ['init', '-q']);
   command(options.root, bd, ['init', '--non-interactive', '--prefix', 't', '--skip-agents', '-q']);
   if (journal) command(options.root, bd, ['config', 'set', 'events-journal', 'true']);
@@ -292,31 +434,62 @@ async function realWorkspace(t, journal = true) {
   return { ...options, bd, invoke };
 }
 
-function launch(t, options, extra = []) {
+async function closesWithin(closed, timeout = 5000) {
+  let timer;
+  try {
+    return await Promise.race([
+      closed.then(() => true),
+      new Promise(resolveTimeout => { timer = setTimeout(() => resolveTimeout(false), timeout); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+function launch(t, options, extra = [], stopVia = 'message') {
   // Launch from outside the bd workspace to prove --beads-dir scopes commands.
   const child = spawn(process.execPath, [helper, '--beads-dir', options.beadsDir,
-    '--checkpoint', options.checkpoint, '--bd', bd, '--debounce-ms', '50', ...extra], {
-    cwd: dirname(helper), windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'],
+    '--checkpoint', options.checkpoint, '--bd', bd, '--debounce-ms', '50',
+    ...(stopVia === 'stdin' ? ['--stop-on-stdin-eof'] : []), ...extra], {
+    cwd: dirname(helper), windowsHide: true, detached: process.platform !== 'win32',
+    stdio: stopVia === 'stdin' ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   let stderr = '';
   child.stdout.resume();
   child.stderr.setEncoding('utf8').on('data', data => { stderr += data; });
-  const closed = new Promise((resolveClosed, reject) => {
-    child.on('error', reject);
+  let childError;
+  child.on('error', error => { childError = error; });
+  child.stdin?.on('error', error => { childError = error; });
+  const closed = new Promise(resolveClosed => {
     child.once('close', code => resolveClosed(code));
   });
-  const kill = async () => {
-    if (child.exitCode === null && child.signalCode === null) {
-      if (process.platform === 'win32') {
-        // Windows has no POSIX SIGKILL delivery; terminate the entire tree.
-        const result = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
-        assert.ifError(result.error);
-      } else process.kill(-child.pid, 'SIGKILL');
+  let stopJob;
+  const stop = () => stopJob ??= (async () => {
+    const running = child.exitCode === null && child.signalCode === null;
+    if (running) {
+      if (stopVia === 'stdin') child.stdin.end();
+      else if (child.connected) {
+        if (stopVia === 'disconnect') child.disconnect();
+        else child.send({ type: 'stop' }, error => { if (error) childError = error; });
+      }
     }
-    await closed;
-  };
-  options.cleanups.push(kill);
-  return { child, closed, kill, stderr: () => stderr };
+    if (!await closesWithin(closed)) {
+      let fallback = '';
+      if (process.platform === 'win32') {
+        const result = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+          windowsHide: true, encoding: 'utf8', timeout: 5000,
+        });
+        fallback = result.error?.message ?? `taskkill exit=${result.status}: ${result.stderr}`;
+      } else {
+        try { process.kill(-child.pid, 'SIGKILL'); }
+        catch (error) { fallback = error.message; }
+      }
+      const reaped = await closesWithin(closed);
+      assert.fail(`helper PID ${child.pid} did not stop gracefully within 5 s; forced kill attempted; closed=${reaped}; ${fallback}\n${stderr}`);
+    }
+    assert.ifError(childError);
+    if (running) assert.equal(await closed, 0, `graceful stop failed\n${stderr}`);
+  })();
+  options.cleanups.push(stop);
+  return { child, closed, stop, stderr: () => stderr };
 }
 
 async function issueStatus(options, id) {
@@ -343,10 +516,10 @@ test('real bd: close updates JSONL and snapshot without a later write; restart r
     return JSON.parse(snapshot.issues_jsonl.trim()).status === 'closed';
   }, 'snapshot reflects close');
   await until(async () => (await seqAt(options.checkpoint)) >= 2, 'close checkpoint');
-  await first.kill();
+  await first.stop();
   const saved = await seqAt(options.checkpoint);
   const secondId = JSON.parse(options.invoke('create', 'created while down', '--json')).id;
-  const second = launch(t, options);
+  const second = launch(t, options, [], 'disconnect');
   await until(async () => (await seqAt(options.checkpoint)) > saved, 'downtime replay');
   assert.equal(await issueStatus(options, secondId), 'open');
   assert.ok(second.stderr().includes(`bmc-follow: start since=${saved}`));
@@ -364,7 +537,7 @@ test('real bd: pruned history rebuilds and continues following', real, async t =
   const head = records.at(-1).seq;
   options.invoke('events', 'prune', '--before', String(head));
   await writeFile(options.checkpoint, '{"seq":1}\n');
-  const run = launch(t, options);
+  const run = launch(t, options, [], 'stdin');
   await until(async () => await seqAt(options.checkpoint) === head, 'truncated rebuild');
   assert.ok(run.stderr().includes('bmc-follow: rebuild reason=truncated'));
   assert.equal(await issueStatus(options, id), 'closed');
