@@ -51,14 +51,18 @@ async function main() {
   const importRegex = /@import\s+url\(['"]?https?:\/\/[^)]+['"]?\);?/gi;
   html = html.replace(importRegex, "/* Font import removed for self-contained offline demo */");
 
-  const docsDir = path.join(rootDir, "docs");
-  await mkdir(docsDir, { recursive: true });
+  const outDir =
+    process.env.BMC_DEMO_OUT_DIR && process.env.BMC_DEMO_OUT_DIR.trim() !== ""
+      ? path.resolve(process.env.BMC_DEMO_OUT_DIR)
+      : path.join(rootDir, "docs");
+  await mkdir(outDir, { recursive: true });
 
-  // 2. Write docs/index.html
-  await writeFile(path.join(docsDir, "index.html"), html, "utf8");
-  console.log("Created docs/index.html");
+  // 2. Write index.html
+  const indexPath = path.join(outDir, "index.html");
+  await writeFile(indexPath, html, "utf8");
+  console.log(`Created ${indexPath}`);
 
-  // 3. Write docs/orchestration.config.js
+  // 3. Write orchestration.config.js
   const configContent = `window.BMC_CONFIG = {
   title: "bd-mission-control // live demo",
   strings: {
@@ -67,21 +71,22 @@ async function main() {
   }
   };
 `;
-  await writeFile(path.join(docsDir, "orchestration.config.js"), configContent, "utf8");
-  console.log("Created docs/orchestration.config.js");
+  const configPath = path.join(outDir, "orchestration.config.js");
+  await writeFile(configPath, configContent, "utf8");
+  console.log(`Created ${configPath}`);
 
-  // 4. Generate docs/orchestration-data.js by running the refresh script
-  console.log("Generating docs/orchestration-data.js...");
+  // 4. Generate orchestration-data.js by running the refresh script
+  const dataPath = path.join(outDir, "orchestration-data.js");
+  console.log(`Generating ${dataPath}...`);
   const isWindows = process.platform === "win32";
   const cmd = isWindows
-    ? "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/refresh.ps1 -Out docs/orchestration-data.js"
-    : "sh scripts/refresh.sh --out docs/orchestration-data.js";
+    ? `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/refresh.ps1 -Out "${dataPath}"`
+    : `sh scripts/refresh.sh --out "${dataPath}"`;
 
   try {
     const { stdout, stderr } = await execAsync(cmd, { cwd: rootDir });
     if (stdout) console.log(stdout.trim());
     if (stderr) console.error(stderr.trim());
-    const dataPath = path.join(docsDir, "orchestration-data.js");
     const rawData = await readFile(dataPath, "utf8");
     const sandbox = { window: {} };
     vm.runInNewContext(rawData, sandbox);
@@ -91,7 +96,7 @@ async function main() {
       `window.BMC_SNAPSHOT = ${JSON.stringify(snapshot)};\n`,
       "utf8"
     );
-    console.log("Generated docs/orchestration-data.js successfully.");
+    console.log(`Generated ${dataPath} successfully.`);
   } catch (error) {
     console.error("Error generating orchestration-data.js:", error.message);
     process.exit(1);
