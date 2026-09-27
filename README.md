@@ -91,6 +91,20 @@ Refresh behavior, verified against both scripts:
 - Default output is `./orchestration-data.js`
 - By default, refresh tries to enrich the snapshot with selected `bd remember` telemetry; `--no-bd-enrich` or `-NoBdEnrich` disables that
 
+## Live updates with bd events (optional, bd >= 1.3.0)
+
+With Node 24 and bd >= 1.3.0, the optional [follow helper](scripts/follow.mjs) keeps `.beads/issues.jsonl` current after local issue changes. Enable the journal in the workspace first: `bd config set events-journal true`. This setting affects every bd command in that workspace, not just the helper.
+
+```sh
+node scripts/follow.mjs --beads-dir /path/to/project/.beads --checkpoint /path/to/project/follow.checkpoint.json
+```
+
+Use `--bd /path/to/bd` to select a binary (default: `bd` on PATH), `--debounce-ms 300` to tune batching, and `--out /path/to/project/docs/orchestration-data.js` to regenerate the `file://` snapshot after each export. Snapshot generation uses the sibling refresh script with memory enrichment disabled; Windows requires `pwsh`, elsewhere POSIX `sh`.
+
+Without a checkpoint, the helper exports all issues (excluding memories) and starts following the journal head. The checkpoint stores the last successfully exported sequence atomically, so restarting with the same file replays missed changes. Retention gaps and checkpoints above the current head trigger a full rebuild. Ctrl-C or SIGTERM stops the helper and its bd child. Run one helper per checkpoint/output pair.
+
+After `bd dolt pull`, switching clone/replica, or changing the bd branch, stop the helper, delete its checkpoint, and restart. Sync and merge changes are not journaled, and sequence numbers are local to each replica; an overlapping sequence cannot identify a different clone. Keep checkpoints local to their workspace. The panel's existing HTTP polling and `file://` reload behavior still apply.
+
 ## Config
 
 `window.BMC_CONFIG` is intentionally small. These are the only keys read by `src/panel.js`.
@@ -170,7 +184,7 @@ This fits multi-agent or multi-reviewer workflows without baking in any machine-
 
 - Any Beads workflow that exports `.beads/issues.jsonl`
 - A static file host or local HTTP server for live mode
-- Node only if you are developing or rebuilding the panel itself, not if you are just vendoring `dist/orchestration.html`
+- Node only if you are developing/rebuilding the panel or running the optional follow helper, not if you are just vendoring `dist/orchestration.html`
 
 ## Compatibility
 
