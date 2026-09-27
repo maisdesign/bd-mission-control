@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import fs, { readFile, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -57,18 +58,25 @@ test("demo build preserves optional sibling config/data scripts without duplicat
   await execFileAsync(process.execPath, ["build.mjs"], {
     cwd: rootDir
   });
-  await execFileAsync(process.execPath, ["scripts/build-demo.mjs"], {
-    cwd: rootDir
-  });
 
-  const output = await readFile(path.join(rootDir, "docs", "index.html"), "utf8");
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "bmc-demo-"));
+  try {
+    await execFileAsync(process.execPath, ["scripts/build-demo.mjs"], {
+      cwd: rootDir,
+      env: { ...process.env, BMC_DEMO_OUT_DIR: tmpDir }
+    });
 
-  assert.equal(
-    countOccurrences(output, '<script src="orchestration.config.js"></script>'),
-    1
-  );
-  assert.equal(
-    countOccurrences(output, '<script src="orchestration-data.js"></script>'),
-    1
-  );
+    const output = await readFile(path.join(tmpDir, "index.html"), "utf8");
+
+    assert.equal(
+      countOccurrences(output, '<script src="orchestration.config.js"></script>'),
+      1
+    );
+    assert.equal(
+      countOccurrences(output, '<script src="orchestration-data.js"></script>'),
+      1
+    );
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 });
