@@ -8,13 +8,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
-const usage = 'Usage: node scripts/follow.mjs --beads-dir <path/to/.beads> --checkpoint <file> [--bd <binary>] [--out <file>] [--debounce-ms <n>]';
+const usage = 'Usage: node scripts/follow.mjs --beads-dir <path/to/.beads> --checkpoint <file> [--bd <binary>] [--out <file>] [--debounce-ms <n>] [--stop-on-stdin-eof]';
 
 export function optionsFromArgs(args) {
   const { values } = parseArgs({ args, options: {
     'beads-dir': { type: 'string' }, checkpoint: { type: 'string' },
     bd: { type: 'string', default: 'bd' }, out: { type: 'string' },
     'debounce-ms': { type: 'string', default: '300' },
+    'stop-on-stdin-eof': { type: 'boolean', default: false },
     help: { type: 'boolean' },
   } });
   if (values.help) return null;
@@ -31,7 +32,7 @@ export function optionsFromArgs(args) {
   if (checkpoint === join(beadsDir, 'issues.jsonl') || checkpoint === out || out === join(beadsDir, 'issues.jsonl')) {
     throw new Error('checkpoint, issues.jsonl and --out must be different files');
   }
-  return { beadsDir, checkpoint, bd, out, debounceMs };
+  return { beadsDir, checkpoint, bd, out, debounceMs, stopOnStdinEof: values['stop-on-stdin-eof'] };
 }
 
 export function supportedVersion(text) {
@@ -60,7 +61,9 @@ async function saveCheckpoint(path, seq) {
 
 // The spawn/log seams let tests exercise failures and races without a bd install.
 // Every production child is spawned directly (no shell or detached process).
-export async function follow(options, { spawnChild = spawn, log = line => console.error(line), signals = process } = {}) {
+export async function follow(options, {
+  spawnChild = spawn, log = line => console.error(line), signals = process, stdin = process.stdin,
+} = {}) {
   const { beadsDir, checkpoint, bd, out, debounceMs } = options;
   const children = new Map();
   let stopping = false;
@@ -223,7 +226,19 @@ export async function follow(options, { spawnChild = spawn, log = line => consol
 
   signals.on('SIGINT', stop);
   signals.on('SIGTERM', stop);
+  const ipc = typeof signals.send === 'function';
+  const onMessage = message => { if (message?.type === 'stop') stop(); };
+  if (ipc) {
+    signals.on('disconnect', stop);
+    signals.on('message', onMessage);
+  }
+  if (options.stopOnStdinEof) {
+    stdin.on('end', stop);
+    stdin.resume();
+  }
   try {
+    // A parent can close its channel before startup has finished.
+    if ((ipc && signals.connected === false) || (options.stopOnStdinEof && stdin.readableEnded)) stop();
     const version = requireSuccess(await command(bd, ['version']), 'bd version');
     if (!supportedVersion(version)) {
       log('bmc-follow: bd >= 1.3.0 is required');
@@ -265,6 +280,15 @@ export async function follow(options, { spawnChild = spawn, log = line => consol
       clearTimeout(killTimer);
       signals.off('SIGINT', stop);
       signals.off('SIGTERM', stop);
+      if (ipc) {
+        signals.off('disconnect', stop);
+        signals.off('message', onMessage);
+        if (signals.connected) signals.disconnect();
+      }
+      if (options.stopOnStdinEof) {
+        stdin.off('end', stop);
+        stdin.pause();
+      }
     }
   }
 }
