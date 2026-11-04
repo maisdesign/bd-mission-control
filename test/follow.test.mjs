@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmod, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,6 +72,31 @@ async function clearReadonly(root) {
   }
 }
 
+async function removeWorkspace(root, { remove = rm, wait = delay } = {}) {
+  async function removeTree(path) {
+    // rimraf tries rmdir before visiting children; Windows can report EBUSY
+    // there and leave the entire tree untouched. Empty directories first.
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      const child = join(path, entry.name);
+      if (entry.isDirectory()) await removeTree(child);
+      else await remove(child, { force: true, maxRetries: 0 });
+    }
+    await remove(path, { recursive: true, force: true, maxRetries: 0 });
+  }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if (process.platform === 'win32') await clearReadonly(root);
+      await removeTree(root);
+      return;
+    } catch (error) {
+      if (error.code === 'ENOENT' && error.path === root) return;
+      if (!['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY', 'EMFILE', 'ENFILE'].includes(error.code) || attempt === 8) throw error;
+      // One budget shared by the entire tree, not a new budget at each level.
+      await wait(200 * (attempt + 1)); // 200 * (1 + ... + 8) = 7.2 s total.
+    }
+  }
+}
+
 async function workspace(t, realProcesses = false) {
   const root = await mkdtemp(join(tmpdir(), 'bmc-follow-'));
   const cleanups = [];
@@ -82,9 +107,7 @@ async function workspace(t, realProcesses = false) {
     }
     try {
       if (realProcesses) await waitForWorkspaceExit(root);
-      if (process.platform === 'win32') await clearReadonly(root);
-      // Node uses linear backoff: 200 * (1 + ... + 8) = 7.2 s.
-      await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 200 });
+      await removeWorkspace(root);
     } catch (error) { errors.push(error); }
     if (errors.length) throw new AggregateError(errors, `workspace cleanup failed: ${errors.map(error => error.message).join('; ')}`);
   });
@@ -166,7 +189,9 @@ function mock(t, options, overrides = {}) {
     });
     return child;
   };
-  const result = follow(options, { spawnChild, log: line => logs.push(line), signals, stdin });
+  const result = follow(options, {
+    spawnChild, log: line => logs.push(line), signals, stdin, renameCheckpoint: overrides.renameCheckpoint,
+  });
   options.cleanups.push(async () => {
     signals.emit('SIGTERM');
     await result;
@@ -215,6 +240,44 @@ for (const [name, overrides, exit, message] of [
     assert.equal(await textOrMissing(options.checkpoint), undefined);
   });
 }
+
+test('Windows checkpoint replacement retries sharing violations without removing the saved checkpoint', async t => {
+  const options = await workspace(t);
+  await writeFile(options.checkpoint, '{"seq":1}\n');
+  let attempts = 0;
+  const run = mock(t, options, { head: 1, renameCheckpoint: async (source, destination) => {
+    attempts++;
+    assert.equal(await seqAt(destination), 1, 'old checkpoint must remain readable until replacement');
+    if (process.platform === 'win32' && attempts <= 2) {
+      throw Object.assign(new Error('sharing violation'), { code: attempts === 1 ? 'EPERM' : 'EBUSY' });
+    }
+    return rename(source, destination);
+  } });
+  await until(() => run.live.length, 'follower started');
+  run.live[0].stdout.write('{"seq":2}\n');
+  await until(async () => await seqAt(options.checkpoint) === 2, 'checkpoint replaced');
+  // The real filesystem may add sharing violations beyond the two injected.
+  if (process.platform === 'win32') assert.ok(attempts >= 3 && attempts <= 9, `rename attempts: ${attempts}`);
+  else assert.equal(attempts, 1);
+  assert.ok(!(await readdir(options.root)).some(name => name.endsWith('.tmp')));
+});
+
+test('persistent checkpoint replacement failure preserves saved sequence and stops every child', async t => {
+  const options = await workspace(t);
+  await writeFile(options.checkpoint, '{"seq":1}\n');
+  let attempts = 0;
+  const run = mock(t, options, { head: 1, renameCheckpoint: async () => {
+    attempts++;
+    throw Object.assign(new Error('persistent sharing violation'), { code: 'EPERM' });
+  } });
+  await until(() => run.live.length, 'follower started');
+  run.live[0].stdout.write('{"seq":2}\n');
+  assert.equal(await run.result, 1);
+  assert.equal(attempts, process.platform === 'win32' ? 9 : 1);
+  assert.equal(await seqAt(options.checkpoint), 1);
+  assert.ok(run.calls.every(call => call.child.closed));
+  assert.ok(!(await readdir(options.root)).some(name => name.endsWith('.tmp')));
+});
 
 test('initial rebuild captures head before export, uses workspace cwd and refresh flags', async t => {
   const options = await workspace(t);
@@ -444,6 +507,94 @@ async function closesWithin(closed, timeout = 5000) {
   } finally { clearTimeout(timer); }
 }
 
+function childCompletion(child) {
+  // Node 24.18 can miss ChildProcess 'close' after parent-side disconnect():
+  // its IPC close counter is advanced on EOF, but not on explicit disconnect.
+  // Observe each public event instead; exit alone would hide inherited pipes.
+  const exited = new Promise(resolveExit => child.once('exit', resolveExit));
+  const streams = [child.stdin, child.stdout, child.stderr].filter(Boolean)
+    .map(stream => new Promise(resolveClose => stream.once('close', resolveClose)));
+  const ipc = child.connected
+    ? new Promise(resolveDisconnect => child.once('disconnect', resolveDisconnect)) : undefined;
+  return Promise.all([exited, ...streams, ipc]).then(([code]) => code);
+}
+
+test('child completion waits for output streams after exit and IPC disconnect', async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.connected = true;
+  let completed = false;
+  const completion = childCompletion(child).then(code => { completed = true; return code; });
+  child.emit('disconnect');
+  child.emit('exit', 0);
+  child.stdout.emit('close');
+  await new Promise(resolveImmediate => setImmediate(resolveImmediate));
+  assert.equal(completed, false, 'stderr must close too');
+  child.stderr.emit('close');
+  assert.equal(await completion, 0);
+});
+
+test('workspace removal shares one linear retry budget across different files', async t => {
+  const options = await workspace(t);
+  await writeFile(join(options.root, 'a'), 'a');
+  await writeFile(join(options.root, 'b'), 'b');
+  const failures = new Set([join(options.root, 'a'), join(options.root, 'b')]);
+  const waits = [];
+  await removeWorkspace(options.root, {
+    remove: async (path, settings) => {
+      if (failures.delete(path)) throw Object.assign(new Error('sharing violation'), { code: 'EBUSY' });
+      return rm(path, settings);
+    },
+    wait: async ms => { waits.push(ms); },
+  });
+  assert.deepEqual(waits, [200, 400]);
+  await assert.rejects(readdir(options.root), { code: 'ENOENT' });
+});
+
+test('workspace removal fails after a total 7.2 s retry budget', async t => {
+  const options = await workspace(t);
+  const waits = [];
+  let attempts = 0;
+  await assert.rejects(removeWorkspace(options.root, {
+    remove: async () => {
+      attempts++;
+      throw Object.assign(new Error('persistent lock'), { code: 'EBUSY' });
+    },
+    wait: async ms => { waits.push(ms); },
+  }), { code: 'EBUSY' });
+  assert.equal(attempts, 9);
+  assert.deepEqual(waits, [200, 400, 600, 800, 1000, 1200, 1400, 1600]);
+});
+
+test('real Node child completes after parent disconnects IPC', { timeout: 10000 }, async t => {
+  const child = spawn(process.execPath, ['-e', `
+    process.on('disconnect', () => {
+      process.stdout.write('stopped\\n');
+      process.stderr.write('drained\\n');
+    });
+    process.send({ type: 'ready' });
+  `], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+  const completion = childCompletion(child);
+  t.after(async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    assert.ok(await closesWithin(completion), 'fixture must exit and close its streams');
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', data => { stdout += data; });
+  child.stderr.setEncoding('utf8').on('data', data => { stderr += data; });
+  await new Promise((resolveReady, reject) => {
+    child.once('message', resolveReady);
+    child.once('error', reject);
+  });
+  child.disconnect();
+  assert.ok(await closesWithin(completion), 'parent disconnect must not lose completion');
+  assert.equal(await completion, 0);
+  assert.equal(stdout, 'stopped\n');
+  assert.equal(stderr, 'drained\n');
+});
+
 function launch(t, options, extra = [], stopVia = 'message') {
   // Launch from outside the bd workspace to prove --beads-dir scopes commands.
   const child = spawn(process.execPath, [helper, '--beads-dir', options.beadsDir,
@@ -458,9 +609,7 @@ function launch(t, options, extra = [], stopVia = 'message') {
   let childError;
   child.on('error', error => { childError = error; });
   child.stdin?.on('error', error => { childError = error; });
-  const closed = new Promise(resolveClosed => {
-    child.once('close', code => resolveClosed(code));
-  });
+  const closed = childCompletion(child);
   let stopJob;
   const stop = () => stopJob ??= (async () => {
     const running = child.exitCode === null && child.signalCode === null;
@@ -507,20 +656,20 @@ test('real bd: close updates JSONL and snapshot without a later write; restart r
   await until(async () => (await seqAt(options.checkpoint)) > 0, first.stderr);
   assert.equal(await issueStatus(options, id), 'open');
   options.invoke('close', id);
-  await until(async () => await issueStatus(options, id) === 'closed', 'close visible', 5000);
+  await until(async () => await issueStatus(options, id) === 'closed', () => `close visible\n${first.stderr()}`, 5000);
   await until(async () => {
     const text = await textOrMissing(out);
     if (!text) return false;
     const snapshot = JSON.parse(text.slice('window.BMC_SNAPSHOT = '.length).replace(/;\s*$/, ''));
     assert.equal(snapshot.orchestrator, undefined);
     return JSON.parse(snapshot.issues_jsonl.trim()).status === 'closed';
-  }, 'snapshot reflects close');
-  await until(async () => (await seqAt(options.checkpoint)) >= 2, 'close checkpoint');
+  }, () => `snapshot reflects close\n${first.stderr()}`);
+  await until(async () => (await seqAt(options.checkpoint)) >= 2, () => `close checkpoint\n${first.stderr()}`);
   await first.stop();
   const saved = await seqAt(options.checkpoint);
   const secondId = JSON.parse(options.invoke('create', 'created while down', '--json')).id;
   const second = launch(t, options, [], 'disconnect');
-  await until(async () => (await seqAt(options.checkpoint)) > saved, 'downtime replay');
+  await until(async () => (await seqAt(options.checkpoint)) > saved, () => `downtime replay\n${second.stderr()}`);
   assert.equal(await issueStatus(options, secondId), 'open');
   assert.ok(second.stderr().includes(`bmc-follow: start since=${saved}`));
   assert.ok(!second.stderr().includes('rebuild reason='));
@@ -538,11 +687,11 @@ test('real bd: pruned history rebuilds and continues following', real, async t =
   options.invoke('events', 'prune', '--before', String(head));
   await writeFile(options.checkpoint, '{"seq":1}\n');
   const run = launch(t, options, [], 'stdin');
-  await until(async () => await seqAt(options.checkpoint) === head, 'truncated rebuild');
+  await until(async () => await seqAt(options.checkpoint) === head, () => `truncated rebuild\n${run.stderr()}`);
   assert.ok(run.stderr().includes('bmc-follow: rebuild reason=truncated'));
   assert.equal(await issueStatus(options, id), 'closed');
   options.invoke('reopen', id);
-  await until(async () => (await seqAt(options.checkpoint)) > head, 'following after truncation');
+  await until(async () => (await seqAt(options.checkpoint)) > head, () => `following after truncation\n${run.stderr()}`);
   assert.equal(await issueStatus(options, id), 'open');
 });
 
@@ -551,7 +700,7 @@ test('real bd: foreign checkpoint above head rebuilds from current replica', rea
   const id = JSON.parse(options.invoke('create', 'replica test', '--json')).id;
   await writeFile(options.checkpoint, '{"seq":99999}\n');
   const run = launch(t, options);
-  await until(async () => await seqAt(options.checkpoint) === 1, 'replica-reset checkpoint');
+  await until(async () => await seqAt(options.checkpoint) === 1, () => `replica-reset checkpoint\n${run.stderr()}`);
   assert.equal(await issueStatus(options, id), 'open');
   assert.ok(run.stderr().includes('bmc-follow: rebuild reason=replica-reset'));
 });

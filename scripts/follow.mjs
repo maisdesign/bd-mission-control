@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
@@ -48,12 +49,23 @@ function sequence(value) {
   return value;
 }
 
-async function saveCheckpoint(path, seq) {
+async function saveCheckpoint(path, seq, renameCheckpoint) {
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
     await writeFile(temp, `${JSON.stringify({ seq })}\n`, { flag: 'wx', flush: true });
-    await rename(temp, path);
+    // Windows readers/scanners can briefly deny replacement. Keep the old
+    // checkpoint intact and retry the atomic rename, never unlink it first.
+    // The complete linear wait budget is 25 * (1 + ... + 8) = 900 ms.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await renameCheckpoint(temp, path);
+        break;
+      } catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt === 8) throw error;
+        await delay(25 * (attempt + 1));
+      }
+    }
   } finally {
     await rm(temp, { force: true });
   }
@@ -63,6 +75,7 @@ async function saveCheckpoint(path, seq) {
 // Every production child is spawned directly (no shell or detached process).
 export async function follow(options, {
   spawnChild = spawn, log = line => console.error(line), signals = process, stdin = process.stdin,
+  renameCheckpoint = rename,
 } = {}) {
   const { beadsDir, checkpoint, bd, out, debounceMs } = options;
   const children = new Map();
@@ -158,7 +171,7 @@ export async function follow(options, {
       requireSuccess(await command(binary, args), 'snapshot refresh');
     }
     checkActive();
-    await saveCheckpoint(checkpoint, seq);
+    await saveCheckpoint(checkpoint, seq, renameCheckpoint);
     saved = seq;
     log(`bmc-follow: exported seq=${seq}`);
   }
