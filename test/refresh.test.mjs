@@ -288,12 +288,23 @@ test('refresh scripts keep malicious JSONL inert when evaluated', async () => {
 });
 
 test('refresh.sh strips the BOM and escapes U+2028 under a UTF-8 locale', async (t) => {
-  // bmc-a4h: in a UTF-8 locale gawk counts characters, not bytes, so the
-  // byte-triple checks for the BOM and U+2028/U+2029 never matched there.
-  if (!hasSh()) {
-    t.skip('sh not available');
+  // Probe through the same shell/PATH as refresh.sh. Unsupported version flags
+  // do not mean awk is absent, and a shell launch failure must not pass as a skip.
+  const lookup = run('sh', ['-c', 'command -v awk || exit 127']);
+  assert.ifError(lookup.error);
+  if (lookup.status === 127) {
+    t.skip('No awk available on the refresh.sh shell PATH');
     return;
   }
+  assert.equal(lookup.status, 0, `awk lookup failed: ${lookup.stderr}`);
+  let version = run('sh', ['-c', 'awk --version']);
+  assert.ifError(version.error);
+  if (version.status !== 0) {
+    version = run('sh', ['-c', 'awk -W version']);
+    assert.ifError(version.error);
+  }
+  const awkInfo = `${lookup.stdout.trim()}: ${(version.stdout + version.stderr).trim() || 'version unavailable'} (version probe exit ${version.status})`;
+  t.diagnostic(`awk used by refresh.sh: ${awkInfo}`);
   const tempRoot = await mkdtemp(join(tmpdir(), 'bmc-refresh-locale-'));
   try {
     const beadsDir = join(tempRoot, '.beads');
@@ -301,19 +312,56 @@ test('refresh.sh strips the BOM and escapes U+2028 under a UTF-8 locale', async 
     await writeFile(join(beadsDir, 'issues.jsonl'), '\uFEFF{"id":"demo-1","title":"a\u2028b\u2029c"}\n', 'utf8');
     const shOut = posixPath(join(tempRoot, 'snapshot-sh.js'));
     for (const locale of ['C.UTF-8', 'C']) {
+      const context = `${locale}; ${awkInfo}`;
+      // Requiring a fresh output prevents a successful earlier locale masking failure.
+      await rm(shOut, { force: true });
       const sh = run('sh', ['scripts/refresh.sh', '--beads-dir', posixPath(beadsDir), '--out', shOut, '--no-bd-enrich'], {
         env: { ...process.env, LC_ALL: locale, LANG: locale },
       });
-      assert.equal(sh.status, 0, sh.stderr);
+      assert.equal(sh.status, 0, `${context}: ${sh.error || sh.stderr}`);
+      assert.ok(existsSync(shOut), `${context}: no fresh snapshot produced`);
       const generated = await awaitableRead(shOut);
-      assert.doesNotMatch(generated, /[\uFEFF\u2028\u2029]/, `${locale}: raw BOM/U+2028/U+2029 left in output`);
-      assert.match(generated, /\\u2028/, `${locale}: U+2028 not escaped`);
-      assert.match(generated, /\\u2029/, `${locale}: U+2029 not escaped`);
-      const issues = extractIssues(parseSnapshot(generated));
-      assert.deepEqual(issues, [{ id: 'demo-1', title: 'a\u2028b\u2029c' }], `${locale}: content changed`);
+      assert.doesNotMatch(generated, /[\uFEFF\u2028\u2029]/, `${context}: raw BOM/U+2028/U+2029 left in output`);
+      assert.match(generated, /\\u2028/, `${context}: U+2028 not escaped`);
+      assert.match(generated, /\\u2029/, `${context}: U+2029 not escaped`);
+      let issues;
+      assert.doesNotThrow(() => { issues = extractIssues(parseSnapshot(generated)); }, `${context}: invalid snapshot`);
+      assert.deepEqual(issues, [{ id: 'demo-1', title: 'a\u2028b\u2029c' }], `${context}: content changed`);
     }
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('refresh.sh truncates memory values at UTF-8 boundaries', async (t) => {
+  if (!hasSh()) {
+    t.skip('sh not available');
+    return;
+  }
+  // Exercise the sanitizer alone, without invoking bd or reading real memories.
+  const source = await readFile(resolve('scripts/refresh.sh'), 'utf8');
+  const sanitizer = source.match(/^sanitize_memory_value\(\) \{[\s\S]*?\r?\n\}/m)?.[0];
+  assert.ok(sanitizer, 'sanitize_memory_value function should be present');
+  const mode = run('sh', ['-c', String.raw`LC_ALL=C awk 'BEGIN { print length("\342\200\250") }'`]);
+  assert.equal(mode.status, 0, String(mode.error || mode.stderr));
+  assert.match(mode.stdout.trim(), /^(1|3)$/);
+  const byteMode = mode.stdout.trim() === '3';
+  for (const char of ['é', '€', '😀']) {
+    const bytes = Buffer.byteLength(char);
+    // Try each position inside a multibyte character, plus the exact boundary.
+    for (let room = 0; room <= bytes; room++) {
+      const prefix = 'x'.repeat(2000 - room);
+      const input = prefix + char + 'tail';
+      const result = run('sh', ['-c', `${sanitizer}\nsanitize_memory_value`], {
+        env: { ...process.env, LC_ALL: 'C', LANG: 'C' },
+        stdio: ['pipe', 'pipe', 'pipe'],
+        input,
+      });
+      const context = `${bytes}-byte character with ${room} bytes before the cut`;
+      assert.equal(result.status, 0, `${context}: ${result.error || result.stderr}`);
+      const expected = byteMode ? prefix + (room === bytes ? char : '') : [...input].slice(0, 2000).join('');
+      assert.equal(result.stdout, expected, context);
+    }
   }
 });
 

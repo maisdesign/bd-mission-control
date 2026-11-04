@@ -16,8 +16,7 @@ EOF
 }
 
 json_escape() {
-  # LC_ALL=C: the byte-triple checks below only work when awk walks bytes; in a
-  # UTF-8 locale gawk walks characters and U+2028/U+2029 slip through (bmc-a4h).
+  # Prefer byte mode, but also support awks that walk UTF-8 characters even in C.
   LC_ALL=C awk '
     BEGIN {
       RS = "\0";
@@ -42,12 +41,13 @@ json_escape() {
       n = length(text);
       i = 1;
       while (i <= n) {
-        # U+2028/U+2029 matched as explicit UTF-8 byte triples: byte-oriented awks
-        # (mawk, BWK) walk one byte at a time, so single-"char" table keys never fire.
+        # Match one character or three bytes, advancing in the same units as awk.
+        ch = substr(text, i, 1);
+        if (ch == "\342\200\250") { printf "\\u2028"; i++; continue; }
+        if (ch == "\342\200\251") { printf "\\u2029"; i++; continue; }
         tri = substr(text, i, 3);
         if (tri == "\342\200\250") { printf "\\u2028"; i += 3; continue; }
         if (tri == "\342\200\251") { printf "\\u2029"; i += 3; continue; }
-        ch = substr(text, i, 1);
         if (ch in esc) {
           printf "%s", esc[ch];
         } else {
@@ -61,13 +61,15 @@ json_escape() {
 }
 
 read_raw_file() {
-  # LC_ALL=C for the same reason as json_escape: the BOM check compares bytes.
+  # Keep byte mode where supported; a UTF-8-aware awk may see the BOM as one char.
   LC_ALL=C awk '
     BEGIN { RS = "\0"; ORS = "" }
     {
       text = $0;
       # strip UTF-8 BOM via literal octal bytes: \xHH regex escapes are gawk-only
-      if (substr(text, 1, 3) == "\357\273\277") {
+      if (substr(text, 1, 1) == "\357\273\277") {
+        text = substr(text, 2);
+      } else if (substr(text, 1, 3) == "\357\273\277") {
         text = substr(text, 4);
       }
       printf "%s", text;
@@ -102,13 +104,18 @@ sanitize_memory_value() {
       ORS = "";
       # trailing suffix group catches SECRET_KEY / TOKEN_ID style compounds too
       kw = "(api[_-]?key|bearer|token|password|secret|credential|private[_-]?key|aws_secret_access_key)([_-][A-Za-z0-9_-]*)?";
+      # Only byte-walking awks need to back off at a UTF-8 boundary.
+      if (length("\342\200\250") == 3)
+        for (i = 128; i < 192; i++) continuation[sprintf("%c", i)] = 1;
     }
     {
       text = $0;
       text = redact(text, kw "[\"\047]?[[:space:]]*[:=][[:space:]]*[\"\047]?");
       text = redact(text, kw "[[:space:]]+[\"\047]?");
       if (length(text) > 2000) {
-        text = substr(text, 1, 2000);
+        cut = 2000;
+        while (cut > 0 && (substr(text, cut + 1, 1) in continuation)) cut--;
+        text = substr(text, 1, cut);
       }
       printf "%s", text;
     }
