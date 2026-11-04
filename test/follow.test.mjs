@@ -13,6 +13,9 @@ import { follow, optionsFromArgs, supportedVersion } from '../scripts/follow.mjs
 const helper = fileURLToPath(new URL('../scripts/follow.mjs', import.meta.url));
 const bd = process.env.BMC_BD;
 const real = { skip: !bd && 'set BMC_BD to a bd >= 1.3.0 binary', timeout: 60000 };
+// Collection and detached flushing are separate switches in bd 1.3.0.
+// Scope both to test children; never change the user's saved metrics settings.
+const testEnv = { ...process.env, BD_DISABLE_METRICS: '1', BD_DISABLE_EVENT_FLUSH: '1' };
 
 async function until(predicate, detail, timeout = 15000) {
   const end = Date.now() + timeout;
@@ -23,21 +26,41 @@ async function until(predicate, detail, timeout = 15000) {
   assert.fail(`timed out: ${typeof detail === 'function' ? detail() : detail}`);
 }
 
-function workspacePids(root, timeout) {
+function workspacePids(root, timeout, ancestors = []) {
   const windows = process.platform === 'win32';
   // Pass the path in the environment so the query itself cannot match it.
   const script = `
     $ErrorActionPreference = 'Stop'
-    ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_Process | Where-Object {
-      $_.ProcessId -ne $PID -and $_.ProcessId -ne ${process.pid} -and $_.CommandLine -and
-      $_.CommandLine.IndexOf($env:BMC_FOLLOW_WORKSPACE, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    $processes = @(Get-CimInstance Win32_Process | Where-Object {
+      $_.ProcessId -ne $PID -and $_.ProcessId -ne ${process.pid}
+    })
+    $tracked = [Collections.Generic.HashSet[int]]::new()
+    $ancestors = @($env:BMC_FOLLOW_PARENTS | ConvertFrom-Json)
+    foreach ($p in $processes) {
+      $created = ([DateTimeOffset]$p.CreationDate).ToUnixTimeMilliseconds()
+      foreach ($a in $ancestors) {
+        if (($p.ProcessId -eq $a.pid -or $p.ParentProcessId -eq $a.pid) -and
+            $created -ge $a.start -and $created -le $a.end) { [void]$tracked.Add([int]$p.ProcessId) }
+      }
+    }
+    do {
+      $added = $false
+      foreach ($p in $processes) {
+        if ($tracked.Contains([int]$p.ParentProcessId) -or ($p.CommandLine -and
+            $p.CommandLine.IndexOf($env:BMC_FOLLOW_WORKSPACE, [StringComparison]::OrdinalIgnoreCase) -ge 0)) {
+          if ($tracked.Add([int]$p.ProcessId)) { $added = $true }
+        }
+      }
+    } while ($added)
+    ConvertTo-Json -Compress -InputObject @($processes | Where-Object {
+      $tracked.Contains([int]$_.ProcessId)
     } | ForEach-Object { [int]$_.ProcessId })
   `;
   const result = spawnSync(windows ? 'powershell.exe' : 'ps', windows
     ? ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]
     : ['-A', '-o', 'pid=', '-o', 'args='], {
     encoding: 'utf8', windowsHide: true, timeout,
-    env: { ...process.env, BMC_FOLLOW_WORKSPACE: root },
+    env: { ...process.env, BMC_FOLLOW_WORKSPACE: root, BMC_FOLLOW_PARENTS: JSON.stringify(ancestors) },
   });
   assert.ifError(result.error);
   assert.equal(result.status, 0, `workspace process query failed: ${result.stderr}`);
@@ -48,20 +71,20 @@ function workspacePids(root, timeout) {
   });
 }
 
-async function waitForWorkspaceExit(root) {
-  const deadline = Date.now() + 5000;
+async function waitForWorkspaceExit(root, deadline = Date.now() + 5000, ancestors = []) {
+  deadline = Math.min(deadline, Date.now() + 5000);
   let pids = [];
   do {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    try { pids = workspacePids(root, remaining); }
+    try { pids = workspacePids(root, remaining, ancestors); }
     catch (error) {
       throw new Error(`cannot verify process exit for ${root}; last leftover PIDs: ${pids.join(', ') || 'unknown'}`, { cause: error });
     }
     if (!pids.length) return;
     await delay(Math.min(100, Math.max(0, deadline - Date.now())));
   } while (Date.now() < deadline);
-  assert.fail(`workspace processes still alive after 5 s: ${root}; leftover PIDs: ${pids.join(', ')}`);
+  assert.fail(`workspace processes still alive at cleanup deadline: ${root}; leftover PIDs: ${pids.join(', ')}`);
 }
 
 async function clearReadonly(root) {
@@ -72,7 +95,7 @@ async function clearReadonly(root) {
   }
 }
 
-async function removeWorkspace(root, { remove = rm, wait = delay } = {}) {
+async function removeWorkspace(root, { remove = rm, wait = delay, deadline = Date.now() + 9000, now = Date.now } = {}) {
   async function removeTree(path) {
     // rimraf tries rmdir before visiting children; Windows can report EBUSY
     // there and leave the entire tree untouched. Empty directories first.
@@ -92,7 +115,10 @@ async function removeWorkspace(root, { remove = rm, wait = delay } = {}) {
       if (error.code === 'ENOENT' && error.path === root) return;
       if (!['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY', 'EMFILE', 'ENFILE'].includes(error.code) || attempt === 8) throw error;
       // One budget shared by the entire tree, not a new budget at each level.
-      await wait(200 * (attempt + 1)); // 200 * (1 + ... + 8) = 7.2 s total.
+      const remaining = deadline - now();
+      if (remaining <= 0) throw error;
+      await wait(Math.min(200 * (attempt + 1), remaining));
+      if (now() >= deadline) throw error;
     }
   }
 }
@@ -100,21 +126,24 @@ async function removeWorkspace(root, { remove = rm, wait = delay } = {}) {
 async function workspace(t, realProcesses = false) {
   const root = await mkdtemp(join(tmpdir(), 'bmc-follow-'));
   const cleanups = [];
+  const pids = [];
   t.after(async () => {
+    // Stop, process verification and removal share one wall-clock budget.
+    const deadline = Date.now() + 9000;
     const errors = [];
     for (const cleanup of cleanups.reverse()) {
-      try { await cleanup(); } catch (error) { errors.push(error); }
+      try { await cleanup(deadline); } catch (error) { errors.push(error); }
     }
     try {
-      if (realProcesses) await waitForWorkspaceExit(root);
-      await removeWorkspace(root);
+      if (realProcesses) await waitForWorkspaceExit(root, deadline, pids);
+      await removeWorkspace(root, { deadline });
     } catch (error) { errors.push(error); }
     if (errors.length) throw new AggregateError(errors, `workspace cleanup failed: ${errors.map(error => error.message).join('; ')}`);
   });
   const beadsDir = join(root, '.beads');
   const checkpoint = join(root, 'checkpoint.json');
   await mkdir(beadsDir);
-  return { root, beadsDir, checkpoint, bd: 'mock-bd', debounceMs: 20, cleanups };
+  return { root, beadsDir, checkpoint, bd: 'mock-bd', debounceMs: 20, cleanups, pids };
 }
 
 test('workspace teardown removes nested read-only git object files', async t => {
@@ -287,6 +316,8 @@ test('initial rebuild captures head before export, uses workspace cwd and refres
   assert.deepEqual(run.logs, ['bmc-follow: start since=0', 'bmc-follow: rebuild reason=initial', 'bmc-follow: exported seq=9']);
   assert.equal(await seqAt(options.checkpoint), 9);
   assert.ok(run.calls.every(c => c.spawnOptions.cwd === options.root));
+  assert.ok(run.calls.filter(c => c.binary === options.bd)
+    .every(c => c.spawnOptions.env.BD_DISABLE_EVENT_FLUSH === '1'));
   assert.deepEqual(run.calls.find(c => c.args[0] === 'export').args, ['export', '-o', join(options.beadsDir, 'issues.jsonl')]);
   const refresh = run.calls.find(c => c.binary !== options.bd);
   assert.equal(refresh.binary, process.platform === 'win32' ? 'pwsh' : 'sh');
@@ -481,8 +512,13 @@ test('shutdown escalates if a child ignores SIGTERM', async t => {
   assert.deepEqual(child.signals, ['SIGKILL']);
 });
 
-function command(root, binary, args) {
-  const result = spawnSync(binary, args, { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 20000 });
+function command(options, binary, args) {
+  const start = Date.now();
+  const result = spawnSync(binary, args, {
+    cwd: options.root, env: testEnv, encoding: 'utf8', windowsHide: true, timeout: 20000,
+  });
+  // Bound ancestry by command lifetime to exclude recycled Windows PIDs.
+  if (result.pid) options.pids.push({ pid: result.pid, start, end: Date.now() });
   assert.ifError(result.error);
   assert.equal(result.status, 0, `${binary} ${args.join(' ')}\n${result.stderr}\n${result.stdout}`);
   return result.stdout;
@@ -490,10 +526,10 @@ function command(root, binary, args) {
 
 async function realWorkspace(t, journal = true) {
   const options = await workspace(t, true);
-  command(options.root, 'git', ['init', '-q']);
-  command(options.root, bd, ['init', '--non-interactive', '--prefix', 't', '--skip-agents', '-q']);
-  if (journal) command(options.root, bd, ['config', 'set', 'events-journal', 'true']);
-  const invoke = (...args) => command(options.root, bd, args);
+  command(options, 'git', ['init', '-q']);
+  command(options, bd, ['init', '--non-interactive', '--prefix', 't', '--skip-agents', '-q']);
+  if (journal) command(options, bd, ['config', 'set', 'events-journal', 'true']);
+  const invoke = (...args) => command(options, bd, args);
   return { ...options, bd, invoke };
 }
 
@@ -567,6 +603,46 @@ test('workspace removal fails after a total 7.2 s retry budget', async t => {
   assert.deepEqual(waits, [200, 400, 600, 800, 1000, 1200, 1400, 1600]);
 });
 
+test('empty workspace root locks use only the teardown budget remaining after process exit', async t => {
+  const options = await workspace(t);
+  const waits = [];
+  let clock = 0;
+  let attempts = 0;
+  await assert.rejects(removeWorkspace(options.root, {
+    deadline: 750, now: () => clock,
+    remove: async (path, settings) => {
+      if (path !== options.root) return rm(path, settings);
+      assert.deepEqual(await readdir(path), [], 'only the empty root is locked');
+      attempts++;
+      throw Object.assign(new Error('persistent root lock'), { code: 'EBUSY', path });
+    },
+    wait: async ms => { waits.push(ms); clock += ms; },
+  }), { code: 'EBUSY', path: options.root });
+  assert.equal(attempts, 3);
+  assert.deepEqual(waits, [200, 400, 150]);
+  assert.equal(clock, 750);
+});
+
+test('Windows teardown reports a cwd-only descendant of an exited command by PID', {
+  skip: process.platform !== 'win32', timeout: 15000,
+}, async t => {
+  const options = await workspace(t, true);
+  // Like bd send-metrics: detached child, inherited cwd, no workspace in argv.
+  const leakedPid = Number(command(options, process.execPath, ['-e', `
+    const { spawn } = require('node:child_process');
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'],
+      { detached: true, stdio: 'ignore', windowsHide: true });
+    console.log(child.pid);
+    child.unref();
+  `]));
+  options.cleanups.push(() => {
+    try { process.kill(leakedPid); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+  });
+  assert.ok(workspacePids(options.root, 5000, options.pids).includes(leakedPid));
+  await assert.rejects(waitForWorkspaceExit(options.root, Date.now() + 1500, options.pids),
+    error => error.message.includes(`leftover PIDs: ${leakedPid}`));
+});
+
 test('real Node child completes after parent disconnects IPC', { timeout: 10000 }, async t => {
   const child = spawn(process.execPath, ['-e', `
     process.on('disconnect', () => {
@@ -596,13 +672,16 @@ test('real Node child completes after parent disconnects IPC', { timeout: 10000 
 });
 
 function launch(t, options, extra = [], stopVia = 'message') {
+  const start = Date.now();
   // Launch from outside the bd workspace to prove --beads-dir scopes commands.
   const child = spawn(process.execPath, [helper, '--beads-dir', options.beadsDir,
     '--checkpoint', options.checkpoint, '--bd', bd, '--debounce-ms', '50',
     ...(stopVia === 'stdin' ? ['--stop-on-stdin-eof'] : []), ...extra], {
-    cwd: dirname(helper), windowsHide: true, detached: process.platform !== 'win32',
+    cwd: dirname(helper), env: testEnv, windowsHide: true, detached: process.platform !== 'win32',
     stdio: stopVia === 'stdin' ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', 'ipc'],
   });
+  const lifetime = { pid: child.pid, start, end: Number.MAX_SAFE_INTEGER };
+  options.pids.push(lifetime);
   let stderr = '';
   child.stdout.resume();
   child.stderr.setEncoding('utf8').on('data', data => { stderr += data; });
@@ -610,8 +689,10 @@ function launch(t, options, extra = [], stopVia = 'message') {
   child.on('error', error => { childError = error; });
   child.stdin?.on('error', error => { childError = error; });
   const closed = childCompletion(child);
+  closed.then(() => { lifetime.end = Date.now(); });
   let stopJob;
-  const stop = () => stopJob ??= (async () => {
+  const stop = (deadline = Date.now() + 9000) => stopJob ??= (async () => {
+    const remaining = () => Math.max(0, deadline - Date.now());
     const running = child.exitCode === null && child.signalCode === null;
     if (running) {
       if (stopVia === 'stdin') child.stdin.end();
@@ -620,19 +701,19 @@ function launch(t, options, extra = [], stopVia = 'message') {
         else child.send({ type: 'stop' }, error => { if (error) childError = error; });
       }
     }
-    if (!await closesWithin(closed)) {
+    if (!await closesWithin(closed, Math.min(5000, remaining()))) {
       let fallback = '';
       if (process.platform === 'win32') {
         const result = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
-          windowsHide: true, encoding: 'utf8', timeout: 5000,
+          windowsHide: true, encoding: 'utf8', timeout: Math.max(1, Math.min(1000, remaining())),
         });
         fallback = result.error?.message ?? `taskkill exit=${result.status}: ${result.stderr}`;
       } else {
         try { process.kill(-child.pid, 'SIGKILL'); }
         catch (error) { fallback = error.message; }
       }
-      const reaped = await closesWithin(closed);
-      assert.fail(`helper PID ${child.pid} did not stop gracefully within 5 s; forced kill attempted; closed=${reaped}; ${fallback}\n${stderr}`);
+      const reaped = await closesWithin(closed, remaining());
+      assert.fail(`helper PID ${child.pid} did not stop gracefully before teardown deadline; forced kill attempted; closed=${reaped}; ${fallback}\n${stderr}`);
     }
     assert.ifError(childError);
     if (running) assert.equal(await closed, 0, `graceful stop failed\n${stderr}`);
@@ -650,6 +731,7 @@ async function issueStatus(options, id) {
 
 test('real bd: close updates JSONL and snapshot without a later write; restart replays downtime', real, async t => {
   const options = await realWorkspace(t);
+  assert.match(options.invoke('metrics'), /^Anonymous usage metrics: OFF/m);
   const id = JSON.parse(options.invoke('create', 'live test', '--json')).id;
   const out = join(options.root, 'snapshot with spaces', 'orchestration-data.js');
   const first = launch(t, options, ['--out', out]);
