@@ -120,6 +120,27 @@ function acceptLiveResult({ ok, contentType, parsedCount, currentCount }) {
   return { accepted: true, reason: "" };
 }
 
+function shouldPollSnapshot({ mode, autoEnabled }) {
+  return autoEnabled === true && mode === "snapshot";
+}
+
+function snapshotSignature(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(snapshot);
+  } catch (error) {
+    return "";
+  }
+}
+
+function hasSnapshotChanged(previousSignature, snapshot) {
+  const next = snapshotSignature(snapshot);
+  return next !== "" && next !== previousSignature;
+}
+
 function acceptSnapshotResult({ parsedCount, currentCount }) {
   return !(Number(parsedCount) === 0 && Number(currentCount) > 0);
 }
@@ -2081,6 +2102,7 @@ async function resolveData(config, state) {
       mode,
       path: snapshot.source || "window.BMC_SNAPSHOT",
       generatedAt: snapshot.generated_at,
+      signature: snapshotSignature(snapshot),
       issues: snapshotIssueList || [],
       orchestrator: snapshot.orchestrator && typeof snapshot.orchestrator === "object"
         ? snapshot.orchestrator
@@ -2222,6 +2244,14 @@ function syncAutoRefresh(state) {
     return;
   }
 
+  if (shouldPollSnapshot({ mode: state.source.mode, autoEnabled: true })) {
+    state.refresh.pausedModeLogged = "";
+    state.timerId = window.setInterval(() => {
+      reloadSnapshot(state);
+    }, state.config.refreshInterval || DEFAULT_REFRESH_INTERVAL);
+    return;
+  }
+
   if (state.source.mode !== "live") {
     if (state.refresh.pausedModeLogged !== state.source.mode) {
       console.info(`BMC auto-refresh paused in ${state.source.mode} mode`);
@@ -2234,6 +2264,31 @@ function syncAutoRefresh(state) {
   state.timerId = window.setInterval(() => {
     refresh(state, { manual: false, timerTick: true });
   }, state.config.refreshInterval || DEFAULT_REFRESH_INTERVAL);
+}
+
+// file:// cannot fetch() siblings, but re-injecting the snapshot <script> works.
+// The script re-assigns window.BMC_SNAPSHOT; if it differs from what is on
+// screen, run a normal refresh (which reads the global). Errors keep old data.
+function reloadSnapshot(state) {
+  if (state.refresh.snapshotLoading || state.refresh.inFlight) {
+    return;
+  }
+
+  state.refresh.snapshotLoading = true;
+  const script = document.createElement("script");
+  const done = (loaded) => {
+    script.remove();
+    state.refresh.snapshotLoading = false;
+    if (loaded && hasSnapshotChanged(state.source.signature, window.BMC_SNAPSHOT)) {
+      refresh(state, { manual: false, timerTick: false }).catch((error) => {
+        console.info("BMC snapshot reload failed; keeping last good model", error);
+      });
+    }
+  };
+  script.onload = () => done(true);
+  script.onerror = () => done(false);
+  script.src = `orchestration-data.js?t=${state.now()}`;
+  document.head.appendChild(script);
 }
 
 function commitRefreshState(state, nextState) {
@@ -2741,6 +2796,9 @@ if (typeof globalThis !== "undefined") {
     resolveSnapshotPayload,
     selectAnnouncementVoice,
     shouldCommitRefreshResult,
+    shouldPollSnapshot,
+    hasSnapshotChanged,
+    snapshotSignature,
     shouldRebuildGrid,
     shouldAnnounce,
     summarizeOrchestrator,
