@@ -2320,7 +2320,7 @@ function commitRefreshState(state, nextState) {
   state.previousPct = state.model?.pct ?? 0;
 }
 
-function formatRefreshRejectionReason({ source, currentCount }) {
+function formatRefreshRejectionReason({ source, currentCount, currentMode }) {
   const liveDecision = acceptLiveResult({
     ok: source.liveResult?.ok,
     contentType: source.liveResult?.contentType,
@@ -2328,7 +2328,10 @@ function formatRefreshRejectionReason({ source, currentCount }) {
     currentCount
   });
 
-  if (!liveDecision.accepted && currentCount > 0) {
+  // A snapshot-only session (file://) has no live source to fall back from, so a
+  // failed fetch is expected there; only the snapshot guard below applies.
+  const snapshotOnly = source.mode === "snapshot" && currentMode === "snapshot";
+  if (!snapshotOnly && !liveDecision.accepted && currentCount > 0) {
     if (liveDecision.reason === "status") {
       const status = source.liveResult?.status || "fetch-error";
       return `live status ${status}`;
@@ -2351,8 +2354,8 @@ function formatRefreshRejectionReason({ source, currentCount }) {
   return "";
 }
 
-function shouldCommitRefreshResult({ source, currentCount }) {
-  return formatRefreshRejectionReason({ source, currentCount }) === "";
+function shouldCommitRefreshResult({ source, currentCount, currentMode }) {
+  return formatRefreshRejectionReason({ source, currentCount, currentMode }) === "";
 }
 
 function logStartupDiagnostics(state, source) {
@@ -2394,13 +2397,15 @@ async function refresh(state, options = {}) {
     const source = await resolveData(state.config, state);
     const commitAllowed = shouldCommitRefreshResult({
       source,
-      currentCount: state.model?.counts?.all ?? 0
+      currentCount: state.model?.counts?.all ?? 0,
+      currentMode: state.source.mode
     });
 
     if (!commitAllowed) {
       console.info(`BMC refresh rejected; keeping last good model (${formatRefreshRejectionReason({
         source,
-        currentCount: state.model?.counts?.all ?? 0
+        currentCount: state.model?.counts?.all ?? 0,
+        currentMode: state.source.mode
       })})`);
       return;
     }

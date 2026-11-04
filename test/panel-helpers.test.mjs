@@ -298,3 +298,19 @@ test("hasSnapshotChanged triggers re-render only for a different snapshot", () =
   assert.equal(hasSnapshotChanged(sig, undefined), false);
   assert.equal(hasSnapshotChanged(undefined, a), true);
 });
+
+test("snapshot-only session commits a changed snapshot even though the live fetch failed", () => {
+  const source = {
+    mode: "snapshot",
+    issues: [{ id: "snap-1" }],
+    liveResult: { ok: false, status: 0, contentType: "", issues: [] }
+  };
+  assert.equal(shouldCommitRefreshResult({ currentCount: 19, currentMode: "snapshot", source }), true);
+  // a previously live session must still keep its last good model
+  assert.equal(shouldCommitRefreshResult({ currentCount: 19, currentMode: "live", source }), false);
+  // an empty snapshot is still rejected
+  assert.equal(
+    shouldCommitRefreshResult({ currentCount: 19, currentMode: "snapshot", source: { ...source, issues: [] } }),
+    false
+  );
+});
