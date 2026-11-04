@@ -287,6 +287,36 @@ test('refresh scripts keep malicious JSONL inert when evaluated', async () => {
   }
 });
 
+test('refresh.sh strips the BOM and escapes U+2028 under a UTF-8 locale', async (t) => {
+  // bmc-a4h: in a UTF-8 locale gawk counts characters, not bytes, so the
+  // byte-triple checks for the BOM and U+2028/U+2029 never matched there.
+  if (!hasSh()) {
+    t.skip('sh not available');
+    return;
+  }
+  const tempRoot = await mkdtemp(join(tmpdir(), 'bmc-refresh-locale-'));
+  try {
+    const beadsDir = join(tempRoot, '.beads');
+    await mkdir(beadsDir, { recursive: true });
+    await writeFile(join(beadsDir, 'issues.jsonl'), '\uFEFF{"id":"demo-1","title":"a\u2028b\u2029c"}\n', 'utf8');
+    const shOut = posixPath(join(tempRoot, 'snapshot-sh.js'));
+    for (const locale of ['C.UTF-8', 'C']) {
+      const sh = run('sh', ['scripts/refresh.sh', '--beads-dir', posixPath(beadsDir), '--out', shOut, '--no-bd-enrich'], {
+        env: { ...process.env, LC_ALL: locale, LANG: locale },
+      });
+      assert.equal(sh.status, 0, sh.stderr);
+      const generated = await awaitableRead(shOut);
+      assert.doesNotMatch(generated, /[\uFEFF\u2028\u2029]/, `${locale}: raw BOM/U+2028/U+2029 left in output`);
+      assert.match(generated, /\\u2028/, `${locale}: U+2028 not escaped`);
+      assert.match(generated, /\\u2029/, `${locale}: U+2029 not escaped`);
+      const issues = extractIssues(parseSnapshot(generated));
+      assert.deepEqual(issues, [{ id: 'demo-1', title: 'a\u2028b\u2029c' }], `${locale}: content changed`);
+    }
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('-AutoExport / --auto-export resolves -BeadsDir to the correct .beads location and project context', async () => {
   // Regression test: an earlier version of -AutoExport/--auto-export treated
   // an explicit -BeadsDir value as the export directory verbatim, without

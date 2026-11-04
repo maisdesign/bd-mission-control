@@ -16,7 +16,9 @@ EOF
 }
 
 json_escape() {
-  awk '
+  # LC_ALL=C: the byte-triple checks below only work when awk walks bytes; in a
+  # UTF-8 locale gawk walks characters and U+2028/U+2029 slip through (bmc-a4h).
+  LC_ALL=C awk '
     BEGIN {
       RS = "\0";
       ORS = "";
@@ -59,7 +61,8 @@ json_escape() {
 }
 
 read_raw_file() {
-  awk '
+  # LC_ALL=C for the same reason as json_escape: the BOM check compares bytes.
+  LC_ALL=C awk '
     BEGIN { RS = "\0"; ORS = "" }
     {
       text = $0;
