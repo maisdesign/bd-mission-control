@@ -13,7 +13,10 @@ const {
   matchesSearch,
   nextTheme,
   shouldRebuildGrid,
-  shouldCommitRefreshResult
+  shouldCommitRefreshResult,
+  shouldPollSnapshot,
+  hasSnapshotChanged,
+  snapshotSignature
 } = globalThis.BMC_PANEL_HELPERS;
 
 test("decideSourceMode prefers live, then snapshot, then demo", () => {
@@ -278,4 +281,20 @@ test("shouldRebuildGrid only returns true when the fingerprint changes", () => {
   assert.equal(shouldRebuildGrid(null, "next"), true);
   assert.equal(shouldRebuildGrid("same", "same"), false);
   assert.equal(shouldRebuildGrid("prev", "next"), true);
+});
+
+test("shouldPollSnapshot only runs in snapshot mode with auto-refresh on", () => {
+  assert.equal(shouldPollSnapshot({ mode: "snapshot", autoEnabled: true }), true);
+  assert.equal(shouldPollSnapshot({ mode: "snapshot", autoEnabled: false }), false);
+  assert.equal(shouldPollSnapshot({ mode: "live", autoEnabled: true }), false);
+  assert.equal(shouldPollSnapshot({ mode: "demo", autoEnabled: true }), false);
+});
+
+test("hasSnapshotChanged triggers re-render only for a different snapshot", () => {
+  const a = { generated_at: "t1", issues: [{ id: "x-1" }] };
+  const sig = snapshotSignature(a);
+  assert.equal(hasSnapshotChanged(sig, { generated_at: "t1", issues: [{ id: "x-1" }] }), false);
+  assert.equal(hasSnapshotChanged(sig, { generated_at: "t2", issues: [{ id: "x-1" }] }), true);
+  assert.equal(hasSnapshotChanged(sig, undefined), false);
+  assert.equal(hasSnapshotChanged(undefined, a), true);
 });
