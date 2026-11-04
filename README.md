@@ -85,6 +85,7 @@ That means:
 - Over HTTP, the default experience is live fetch from `../.beads/issues.jsonl`.
 - Over `file://`, browsers usually block fetches to sibling files, so blank/live-less panels are expected unless you first run a refresh script.
 - `scripts/refresh.ps1` and `scripts/refresh.sh` generate `orchestration-data.js`, which makes the same vendored panel usable from `file://`.
+- In snapshot mode with auto-refresh on, the panel re-injects `orchestration-data.js?t=<timestamp>` every `refreshInterval` and re-renders in place when the snapshot changed, so pairing `scripts/follow.mjs --out` with a `file://` panel needs no F5. A snapshot that fails to load is ignored and retried on the next tick.
 
 Refresh behavior, verified against both scripts:
 
@@ -232,6 +233,7 @@ If this is useful to you, a mention or link back is appreciated but never requir
 `bd-mission-control` e un pannello HTML singolo per osservare tracker Beads in tempo reale o da snapshot.
 Funziona bene servito via HTTP, dove prova a leggere `../.beads/issues.jsonl` in live mode.
 Se apri il file con `file://`, genera prima `orchestration-data.js` con `scripts/refresh.ps1` o `scripts/refresh.sh`.
+In modalita snapshot il pannello ricarica periodicamente `orchestration-data.js` (senza F5) e si aggiorna se i dati sono cambiati.
 Gli script di installazione copiano il pannello e i refresh script, ma preservano `orchestration.config.js` gia esistente.
 Demo pubblica: [maisdesign.github.io/bd-mission-control](https://maisdesign.github.io/bd-mission-control/).
 
