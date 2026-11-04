@@ -51,6 +51,12 @@ test("deriveModel builds the expected fixture summary", async () => {
   const model = deriveModel(issues);
 
   assert.equal(issues.length, 26);
+  for (const issue of issues) {
+    assert.equal(issue.owner, "owner@example.invalid");
+    for (const actor of [issue.assignee, issue.created_by, ...issue.comments.map(comment => comment.author)]) {
+      assert.match(actor, /^(?:agent-[a-f]|human-lead)?$/);
+    }
+  }
   assert.deepEqual(model.counts, {
     all: 26,
     ready: 2,

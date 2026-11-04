@@ -1,39 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
-import vm from "node:vm";
 
-const execAsync = promisify(exec);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, "..");
-
-function rebrandString(value) {
-  return String(value)
-    .replace(/J\.A\.R\.V\.I\.S\./g, "T.A.K.Y.")
-    .replace(/J[A-Z][A-Z][A-Z][A-Z][A-Z]/g, "TAKY")
-    .replace(/J[a-z][a-z][a-z][a-z][a-z]/g, "Taky")
-    .replace(/j[a-z][a-z][a-z][a-z][a-z]/g, "taky");
-}
-
-function sanitizeSnapshot(value) {
-  if (typeof value === "string") {
-    return rebrandString(value);
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((entry) => sanitizeSnapshot(entry));
-  }
-
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, sanitizeSnapshot(entry)])
-    );
-  }
-
-  return value;
-}
 
 async function main() {
   console.log("Building GitHub Pages demo...");
@@ -67,7 +37,7 @@ async function main() {
   title: "bd-mission-control // live demo",
   strings: {
     search_placeholder: "Filter telemetry...",
-    footer_text: "TAKY MISSION CONTROL HUD • demo data = this repo's own bead tracker"
+    footer_text: "TAKY MISSION CONTROL HUD • demo data = synthetic fixture"
   }
   };
 `;
@@ -75,22 +45,19 @@ async function main() {
   await writeFile(configPath, configContent, "utf8");
   console.log(`Created ${configPath}`);
 
-  // 4. Generate orchestration-data.js by running the refresh script
+  // 4. Read only the synthetic fixture; no tracker discovery or bd enrichment.
   const dataPath = path.join(outDir, "orchestration-data.js");
   console.log(`Generating ${dataPath}...`);
-  const isWindows = process.platform === "win32";
-  const cmd = isWindows
-    ? `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/refresh.ps1 -Out "${dataPath}"`
-    : `sh scripts/refresh.sh --out "${dataPath}"`;
 
   try {
-    const { stdout, stderr } = await execAsync(cmd, { cwd: rootDir });
-    if (stdout) console.log(stdout.trim());
-    if (stderr) console.error(stderr.trim());
-    const rawData = await readFile(dataPath, "utf8");
-    const sandbox = { window: {} };
-    vm.runInNewContext(rawData, sandbox);
-    const snapshot = sanitizeSnapshot(sandbox.window.BMC_SNAPSHOT);
+    const issuesJsonl = (await readFile(path.join(rootDir, "demo", "issues.jsonl"), "utf8"))
+      .replace(/\r\n/g, "\n");
+    const snapshot = {
+      // Fixed fixture timestamp keeps published demo artifacts reproducible.
+      generated_at: "2031-04-14T16:00:00.000Z",
+      source: "demo/issues.jsonl",
+      issues_jsonl: issuesJsonl,
+    };
     await writeFile(
       dataPath,
       `window.BMC_SNAPSHOT = ${JSON.stringify(snapshot)};\n`,

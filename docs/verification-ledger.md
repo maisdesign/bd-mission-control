@@ -5,7 +5,7 @@
 The practical convention is a comment containing a pass marker such as:
 
 ```text
-VERIFIED bead=bmc-9 result=pass gate='node --test && node build.mjs' exit=0
+VERIFIED bead=demo-9 result=pass gate='node --test && node build.mjs' exit=0
 ```
 
 Why this matters:

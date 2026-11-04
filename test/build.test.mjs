@@ -15,6 +15,34 @@ function countOccurrences(haystack, needle) {
   return haystack.split(needle).length - 1;
 }
 
+function assertPublicDemoPayload(text) {
+  const match = text.match(/^window\.BMC_SNAPSHOT = ([\s\S]*);\s*$/);
+  assert.ok(match, "demo snapshot must contain a JSON payload");
+  const snapshot = JSON.parse(match[1]);
+  assert.equal(snapshot.source, "demo/issues.jsonl");
+  assert.equal(Object.hasOwn(snapshot, "orchestrator"), false);
+  assert.doesNotMatch(text, /bmc-/i);
+  assert.doesNotMatch(text, /@/);
+  assert.equal(typeof snapshot.issues_jsonl, "string");
+  const issues = snapshot.issues_jsonl.trim().split(/\r?\n/).map(line => JSON.parse(line));
+  assert.ok(issues.length > 0);
+  for (const issue of issues) {
+    assert.ok(issue.id.startsWith("demo-"), `non-demo issue: ${issue.id}`);
+  }
+  const checkKeys = value => {
+    if (value && typeof value === "object") {
+      assert.equal(Object.hasOwn(value, "orchestrator"), false);
+      Object.values(value).forEach(checkKeys);
+    }
+  };
+  checkKeys(snapshot);
+  checkKeys(issues);
+}
+
+test("committed demo snapshot contains only public fixture data", async () => {
+  assertPublicDemoPayload(await readFile(path.join(rootDir, "docs", "orchestration-data.js"), "utf8"));
+});
+
 test("build emits a fully resolved orchestration bundle", async () => {
   await execFileAsync(process.execPath, ["build.mjs"], {
     cwd: rootDir
@@ -54,7 +82,7 @@ test("build outputs load optional sibling config/data scripts exactly once", asy
   assert.ok(dataTagIndex < lastInlineScriptIndex);
 });
 
-test("demo build preserves optional sibling config/data scripts without duplication", async () => {
+test("demo build is public, reproducible, and preserves sibling scripts without duplication", async () => {
   await execFileAsync(process.execPath, ["build.mjs"], {
     cwd: rootDir
   });
@@ -76,6 +104,20 @@ test("demo build preserves optional sibling config/data scripts without duplicat
       countOccurrences(output, '<script src="orchestration-data.js"></script>'),
       1
     );
+
+    const artifacts = ["orchestration-data.js", "orchestration.config.js", "index.html"];
+    const firstRun = await Promise.all(artifacts.map(file => readFile(path.join(tmpDir, file), "utf8")));
+    assertPublicDemoPayload(firstRun[0]);
+    await execFileAsync(process.execPath, ["scripts/build-demo.mjs"], {
+      cwd: rootDir,
+      env: { ...process.env, BMC_DEMO_OUT_DIR: tmpDir }
+    });
+    for (const [index, file] of artifacts.entries()) {
+      const secondRun = await readFile(path.join(tmpDir, file), "utf8");
+      const committed = await readFile(path.join(rootDir, "docs", file), "utf8");
+      assert.equal(secondRun, firstRun[index], `${file} must be byte-identical across builds`);
+      assert.equal(secondRun.replace(/\r\n/g, "\n"), committed.replace(/\r\n/g, "\n"), `${file} must match docs/`);
+    }
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }

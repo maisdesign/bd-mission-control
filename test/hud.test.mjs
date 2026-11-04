@@ -57,18 +57,18 @@ test("mapVerificationBadge maps ledger verification states for done cards", () =
 });
 
 test("parseAttemptValue extracts attempt count and ignores unrelated text", () => {
-  assert.equal(parseAttemptValue("attempt=2 worker=codex-lavoro base_sha=123"), 2);
+  assert.equal(parseAttemptValue("attempt=2 worker=agent-a base_sha=123"), 2);
   assert.equal(parseAttemptValue("ATTEMPT missing"), null);
   assert.equal(parseAttemptValue("attempt=abc"), null);
 });
 
 test("parseLockTelemetry extracts holder, last confirmation, and handoff id", () => {
   const parsed = parseLockTelemetry(
-    "ORCHESTRATOR_LOCK holder=claude-fable profile=x session=y acquired=2026-07-11T11:30:00+02:00 last_confirmation=2026-07-11T14:00:00+02:00 handoff_id=none"
+    "ORCHESTRATOR_LOCK holder=human-lead profile=x session=y acquired=2026-07-11T11:30:00+02:00 last_confirmation=2026-07-11T14:00:00+02:00 handoff_id=none"
   );
 
   assert.deepEqual(parsed, {
-    holder: "claude-fable",
+    holder: "human-lead",
     lastConfirmation: "2026-07-11T14:00:00+02:00",
     handoffId: "none"
   });

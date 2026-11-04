@@ -180,20 +180,20 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 const DEMO_ISSUES = [
-  { id: "bmc-1", phase: "1", title: "Scaffold: repo layout, zero-dep build.mjs, test harness, realistic fixture, MIT license", desc: "Establish a zero-dependency build pipeline and realistic bead fixtures for the mission control panel.", status: "done", track: "CORE", thinking: "med", assignee: "system", blockedBy: [], verification: "pass" },
-  { id: "bmc-2", phase: "2", title: "Data engine: JSONL parse + auto-derive waves/state/track/thinking + meta overlay + ledger", desc: "Parse .beads/issues.jsonl and derive wave membership, status, track and verification signals.", status: "done", track: "CORE", thinking: "high", assignee: "t.stark", blockedBy: [], verification: "pass" },
-  { id: "bmc-3", phase: "3", title: "Docs: meta-json overlay guide + verification ledger field notes", desc: "Document the overlay schema and the closed-vs-verified distinction for reviewers.", status: "done", track: "DOCS", thinking: "medhi", assignee: "agy", blockedBy: [], verification: "pass" },
-  { id: "bmc-4", phase: "4", title: "Panel behaviors: data chain live/snapshot/demo, filters, search, config, theme toggle", desc: "Wire the three-tier data chain and interactive controls into the rendered HUD.", status: "done", track: "UI", thinking: "medhi", assignee: "j.jarvis", blockedBy: [], verification: "pass" },
-  { id: "bmc-5", phase: "5", title: "Refresh scripts ps1+sh: .beads -> orchestration-data.js snapshot + bd memories enrichment", desc: "Generate portable snapshots for file:// usage, enriched with recall telemetry.", status: "done", track: "SCRIPTS", thinking: "med", assignee: "system", blockedBy: [], verification: "pass" },
-  { id: "bmc-6", phase: "6", title: "UI: orchestrator telemetry strip + verification badges + sound toggle", desc: "Surface lock holder, retry counts and drift badges directly on the HUD.", status: "done", track: "UI", thinking: "med", assignee: "agy", blockedBy: [], verification: "pass" },
-  { id: "bmc-7", phase: "7", title: "Install/wiring scripts ps1+sh: vendor panel into any project, config-preserving updates", desc: "Ship idempotent installers that never clobber a project's local config.", status: "done", track: "SCRIPTS", thinking: "medhi", assignee: "system", blockedBy: [], verification: "pass" },
-  { id: "bmc-8", phase: "8", title: "Docs: FAQ + compatibility matrix for file:// and static hosting", desc: "Cover the blank-panel failure modes and how to resolve them.", status: "done", track: "DOCS", thinking: "low", assignee: "reviewer", blockedBy: [], verification: "pass" },
-  { id: "bmc-9", phase: "9", title: "README public face", desc: "Rewrite the README as the project's public-facing pitch and quickstart.", status: "done", track: "DOCS", thinking: "low", assignee: "reviewer", blockedBy: [], verification: "pass" },
-  { id: "bmc-10", phase: "10", title: "Final QA + release v1.0.0: runtime matrix, drift check, screenshot, Pages, tag", desc: "Gate the v1.0.0 tag on a clean runtime matrix and verification ledger.", status: "inprogress", track: "QA", thinking: "high", assignee: "claude-fable", blockedBy: ["bmc-13"], verification: null },
-  { id: "bmc-11", phase: "11", title: "BUG: vendored panel never loads orchestration.config.js / orchestration-data.js (wiring dead on install)", desc: "Fix sibling-script loading order so vendored installs pick up local config.", status: "done", track: "CORE", thinking: "med", assignee: "t.stark", blockedBy: [], verification: "pass" },
-  { id: "bmc-12", phase: "12", title: "FEATURE: completion detection + JARVIS chime (WebAudio, zero-dep) on bead done", desc: "Detect newly-closed beads and play a synthesized completion chime.", status: "done", track: "UI", thinking: "medhi", assignee: "j.jarvis", blockedBy: [], verification: null },
-  { id: "bmc-13", phase: "13", title: "FEATURE: JARVIS voice announcer - speaks bead status on button/timer/N-completions (Web Speech API)", desc: "Add opt-in voice announcements for status changes using the Web Speech API.", status: "ready", track: "UI", thinking: "med", assignee: "unassigned", blockedBy: [], verification: null },
-  { id: "bmc-v1", phase: "v1", title: "EPIC: bd-mission-control v1 - single-file JARVIS mission control panel for bd", desc: "Ship a single vendorable HTML panel with a JARVIS-inspired HUD for any bd project.", status: "ready", track: "EPIC", thinking: "high", assignee: "unassigned", blockedBy: [], verification: null }
+  { id: "demo-1", phase: "1", title: "Prepare the observatory workshop", desc: "Arrange the workbenches and label the equipment shelves.", status: "done", track: "CORE", thinking: "med", assignee: "agent-c", blockedBy: [], verification: "pass" },
+  { id: "demo-2", phase: "2", title: "Catalog the northern sky", desc: "Group fictional star records by brightness and constellation.", status: "done", track: "CORE", thinking: "high", assignee: "agent-a", blockedBy: [], verification: "pass" },
+  { id: "demo-3", phase: "3", title: "Write the telescope field guide", desc: "Describe the practice lenses and the evening observation route.", status: "done", track: "DOCS", thinking: "medhi", assignee: "agent-b", blockedBy: [], verification: "pass" },
+  { id: "demo-4", phase: "4", title: "Sketch the interactive star map", desc: "Add selection controls for the training constellations.", status: "done", track: "UI", thinking: "medhi", assignee: "agent-b", blockedBy: [], verification: "pass" },
+  { id: "demo-5", phase: "5", title: "Schedule the lantern sweep", desc: "Create a nightly routine for checking the garden lanterns.", status: "done", track: "SCRIPTS", thinking: "med", assignee: "agent-c", blockedBy: [], verification: "pass" },
+  { id: "demo-6", phase: "6", title: "Display weather station readings", desc: "Show simulated wind and cloud readings on the entrance board.", status: "done", track: "UI", thinking: "med", assignee: "agent-b", blockedBy: [], verification: "pass" },
+  { id: "demo-7", phase: "7", title: "Pack the travelling telescope kit", desc: "Bundle the practice instruments for the next outreach visit.", status: "done", track: "SCRIPTS", thinking: "medhi", assignee: "agent-c", blockedBy: [], verification: "pass" },
+  { id: "demo-8", phase: "8", title: "Draft the visitor questions sheet", desc: "Explain how guests can reserve a viewing slot.", status: "done", track: "DOCS", thinking: "low", assignee: "human-lead", blockedBy: [], verification: "pass" },
+  { id: "demo-9", phase: "9", title: "Publish the observatory visitor guide", desc: "Introduce the fictional observatory and its evening activities.", status: "done", track: "DOCS", thinking: "low", assignee: "human-lead", blockedBy: [], verification: "pass" },
+  { id: "demo-10", phase: "10", title: "Rehearse opening night", desc: "Check the visitor route after the constellation tour is ready.", status: "inprogress", track: "QA", thinking: "high", assignee: "human-lead", blockedBy: ["demo-13"], verification: null },
+  { id: "demo-11", phase: "11", title: "Repair the rotating dome model", desc: "Align the miniature dome rails so the roof opens smoothly.", status: "done", track: "CORE", thinking: "med", assignee: "agent-a", blockedBy: [], verification: "pass" },
+  { id: "demo-12", phase: "12", title: "Add a meteor shower bell", desc: "Ring a gentle bell when the simulated meteor shower begins.", status: "done", track: "UI", thinking: "medhi", assignee: "agent-b", blockedBy: [], verification: null },
+  { id: "demo-13", phase: "13", title: "Record the constellation tour", desc: "Prepare an audio guide through the imaginary star garden.", status: "ready", track: "UI", thinking: "med", assignee: "unassigned", blockedBy: [], verification: null },
+  { id: "demo-v1", phase: "v1", title: "EPIC: Open the Moonflower observatory", desc: "Prepare a fictional community observatory for its first visitors.", status: "ready", track: "EPIC", thinking: "high", assignee: "unassigned", blockedBy: [], verification: null }
 ];
 
 const THINK_COLOR = { high: "#ef4444", medhi: "#f59e0b", med: "#10b981", low: "#94a3b8" };
@@ -201,8 +201,8 @@ const THINK_COLOR = { high: "#ef4444", medhi: "#f59e0b", med: "#10b981", low: "#
 const TICKER_MESSAGES = [
   "TELEMETRY LINK STABLE",
   "SCANNING WAVE W1 FOR DRIFT",
-  "AGENT claude-fable ACTIVE ON bmc-10",
-  "NO UNRESOLVED BLOCKERS OUTSIDE bmc-13",
+  "AGENT human-lead ACTIVE ON demo-10",
+  "NO UNRESOLVED BLOCKERS OUTSIDE demo-13",
   "VERIFICATION LEDGER: 11 PASS / 2 PENDING",
   "ARC REACTOR OUTPUT NOMINAL"
 ];

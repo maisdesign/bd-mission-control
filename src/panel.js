@@ -164,25 +164,25 @@ const STATUS_TO_I18N = {
 const DEMO_ISSUES = [
   {
     id: "demo-1",
-    title: "Bootstrap panel controller",
+    title: "Sketch the observatory entrance board",
     status: "open",
     priority: 1,
     issue_type: "task",
-    assignee: "codex-lavoro",
+    assignee: "agent-a",
     labels: ["track:UI", "wave:1", "thinking:medhi"]
   },
   {
     id: "demo-2",
-    title: "Derive filtered issue model",
+    title: "Catalog the practice constellations",
     status: "in_progress",
     priority: 0,
     issue_type: "task",
-    assignee: "codex-lavoro",
+    assignee: "agent-a",
     labels: ["track:CORE", "wave:1", "thinking:high"]
   },
   {
     id: "demo-3",
-    title: "Wire config overlays",
+    title: "Schedule the garden lanterns",
     status: "open",
     priority: 2,
     issue_type: "task",
@@ -192,7 +192,7 @@ const DEMO_ISSUES = [
   },
   {
     id: "demo-4",
-    title: "Snapshot fallback validation",
+    title: "Check the printed star charts",
     status: "closed",
     priority: 3,
     issue_type: "task",
@@ -202,16 +202,16 @@ const DEMO_ISSUES = [
   },
   {
     id: "demo-5",
-    title: "Track chip generation",
+    title: "Label the telescope stations",
     status: "open",
     priority: 2,
     issue_type: "task",
-    assignee: "agy",
+    assignee: "agent-b",
     labels: ["track:UI", "wave:2"]
   },
   {
     id: "demo-6",
-    title: "Manual refresh on demand",
+    title: "Plan the next moonlit walk",
     status: "deferred",
     priority: 4,
     issue_type: "task",
@@ -220,7 +220,7 @@ const DEMO_ISSUES = [
   },
   {
     id: "demo-7",
-    title: "Theme toggle persistence",
+    title: "Prepare the night viewing lamps",
     status: "closed",
     priority: 2,
     issue_type: "task",
@@ -229,7 +229,7 @@ const DEMO_ISSUES = [
   },
   {
     id: "demo-8",
-    title: "Live fetch telemetry",
+    title: "Read the simulated weather beacon",
     status: "open",
     priority: 2,
     issue_type: "task",
@@ -1978,7 +1978,7 @@ function snapshotIssues(snapshot) {
   if (!snapshot || typeof snapshot !== "object") {
     return null;
   }
-  // string payload (bmc-5 contract): the JSONL travels as one escaped string
+  // String payload: the JSONL travels as one escaped string
   // and is parsed by the tolerant engine parser — malicious lines stay inert data.
   if (typeof snapshot.issues_jsonl === "string") {
     return parseJSONL(snapshot.issues_jsonl);
