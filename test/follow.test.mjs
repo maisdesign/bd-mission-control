@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { spawn, spawnSync } from 'node:child_process';
+import { readFileSync, readlinkSync, writeFileSync } from 'node:fs';
 import { chmod, mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -58,26 +59,39 @@ function workspacePids(root, timeout, ancestors = []) {
   `;
   const result = spawnSync(windows ? 'powershell.exe' : 'ps', windows
     ? ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]
-    : ['-A', '-o', 'pid=', '-o', 'args='], {
+    : ['-ww', '-A', '-o', 'pid=', '-o', 'pgid=', '-o', 'args='], {
     encoding: 'utf8', windowsHide: true, timeout,
     env: { ...process.env, BMC_FOLLOW_WORKSPACE: root, BMC_FOLLOW_PARENTS: JSON.stringify(ancestors) },
   });
   assert.ifError(result.error);
   assert.equal(result.status, 0, `workspace process query failed: ${result.stderr}`);
   if (windows) return JSON.parse(result.stdout.trim());
-  return result.stdout.split('\n').flatMap(line => {
-    const match = line.match(/^\s*(\d+)\s+(.*)$/);
-    return match && Number(match[1]) !== process.pid && match[2].includes(root) ? [Number(match[1])] : [];
+  return posixWorkspacePids(result.stdout, root, ancestors);
+}
+
+function posixWorkspacePids(stdout, root, ancestors, cwdFor = pid => {
+  try { return readlinkSync(`/proc/${pid}/cwd`); } catch { return undefined; }
+}) {
+  return stdout.split('\n').flatMap(line => {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+    if (!match) return [];
+    const [, pidText, groupText, args] = match;
+    const pid = Number(pidText);
+    // Only launch()'s detached helper owns a process group. Ordinary completed
+    // commands must not accidentally select the test runner's shared group.
+    const group = ancestors.some(a => a.group && a.pid === Number(groupText));
+    return pid !== process.pid && (group || cwdFor(pid) === root || args.includes(root)) ? [pid] : [];
   });
 }
 
-async function waitForWorkspaceExit(root, deadline = Date.now() + 5000, ancestors = []) {
+async function waitForWorkspaceExit(root, deadline = Date.now() + 5000, ancestors = [], query = workspacePids) {
   deadline = Math.min(deadline, Date.now() + 5000);
   let pids = [];
   do {
     const remaining = deadline - Date.now();
-    if (remaining <= 0) break;
-    try { pids = workspacePids(root, remaining, ancestors); }
+    // Always take one diagnostic sample, even if stopping exhausted the budget.
+    // This final query has its own small bound; never report an empty PID list.
+    try { pids = query(root, Math.max(1, remaining > 0 ? remaining : 1000), ancestors); }
     catch (error) {
       throw new Error(`cannot verify process exit for ${root}; last leftover PIDs: ${pids.join(', ') || 'unknown'}`, { cause: error });
     }
@@ -197,10 +211,18 @@ function mock(t, options, overrides = {}) {
   const logs = [];
   const live = [];
   const signals = overrides.signals ?? new EventEmitter();
-  const stdin = new PassThrough();
+  const stdin = overrides.stdin ?? new PassThrough();
   const spawnChild = (binary, args, spawnOptions) => {
     const child = fakeChild();
     const call = { binary, args, spawnOptions, child };
+    const finish = child.finish;
+    child.finish = (code = 0, signal = null) => {
+      // Successful writers must produce a real staged artifact to publish.
+      if (!child.closed && code === 0 && (args[0] === 'export' || binary !== options.bd)) {
+        writeFileSync(args.at(-1), args[0] === 'export' ? '{"id":"test"}\n' : 'snapshot\n');
+      }
+      finish(code, signal);
+    };
     calls.push(call);
     setImmediate(() => {
       if (child.closed) return;
@@ -221,9 +243,9 @@ function mock(t, options, overrides = {}) {
   const result = follow(options, {
     spawnChild, log: line => logs.push(line), signals, stdin, renameCheckpoint: overrides.renameCheckpoint,
   });
-  options.cleanups.push(async () => {
+  options.cleanups.push(async deadline => {
     signals.emit('SIGTERM');
-    await result;
+    assert.ok(await closesWithin(result, Math.min(5000, Math.max(0, deadline - Date.now()))), 'mock follow cleanup timed out');
     assert.ok(calls.every(call => call.child.closed), 'no child left alive');
   });
   return { calls, logs, live, result, signals, stdin };
@@ -311,19 +333,30 @@ test('persistent checkpoint replacement failure preserves saved sequence and sto
 test('initial rebuild captures head before export, uses workspace cwd and refresh flags', async t => {
   const options = await workspace(t);
   options.out = join(options.root, 'snapshot.js');
-  const run = mock(t, options, { head: 9 });
+  await writeFile(join(options.root, 'orchestration.meta.json'), '{"test":true}');
+  const run = mock(t, options, { head: 9, handle: call => {
+    if (call.binary !== options.bd) {
+      assert.equal(readFileSync(join(dirname(call.args.at(-1)), 'orchestration.meta.json'), 'utf8'), '{"test":true}');
+    }
+    return false;
+  } });
   await until(() => run.live.length, 'follower started');
   assert.deepEqual(run.logs, ['bmc-follow: start since=0', 'bmc-follow: rebuild reason=initial', 'bmc-follow: exported seq=9']);
   assert.equal(await seqAt(options.checkpoint), 9);
   assert.ok(run.calls.every(c => c.spawnOptions.cwd === options.root));
   assert.ok(run.calls.filter(c => c.binary === options.bd)
     .every(c => c.spawnOptions.env.BD_DISABLE_EVENT_FLUSH === '1'));
-  assert.deepEqual(run.calls.find(c => c.args[0] === 'export').args, ['export', '-o', join(options.beadsDir, 'issues.jsonl')]);
+  const exportArgs = run.calls.find(c => c.args[0] === 'export').args;
+  assert.deepEqual(exportArgs.slice(0, 2), ['export', '-o']);
+  assert.equal(dirname(dirname(exportArgs[2])), options.beadsDir);
+  assert.ok(exportArgs[2].endsWith('issues.jsonl'));
   const refresh = run.calls.find(c => c.binary !== options.bd);
   assert.equal(refresh.binary, process.platform === 'win32' ? 'pwsh' : 'sh');
-  assert.deepEqual(refresh.args, process.platform === 'win32'
-    ? ['-NoProfile', '-File', join(dirname(helper), 'refresh.ps1'), '-BeadsDir', options.beadsDir, '-NoBdEnrich', '-Out', options.out]
-    : [join(dirname(helper), 'refresh.sh'), '--beads-dir', options.beadsDir, '--no-bd-enrich', '--out', options.out]);
+  assert.deepEqual(refresh.args.slice(0, -1), process.platform === 'win32'
+    ? ['-NoProfile', '-File', join(dirname(helper), 'refresh.ps1'), '-BeadsDir', options.beadsDir, '-NoBdEnrich', '-Out']
+    : [join(dirname(helper), 'refresh.sh'), '--beads-dir', options.beadsDir, '--no-bd-enrich', '--out']);
+  assert.equal(dirname(dirname(refresh.args.at(-1))), options.root);
+  assert.ok(refresh.args.at(-1).endsWith('snapshot.js'));
   assert.deepEqual(run.calls.at(-1).args, ['events', 'tail', '--since', '9', '--follow', '--json']);
   assert.ok(!(await readdir(options.root)).some(name => name.endsWith('.tmp')));
 });
@@ -350,6 +383,160 @@ test('debounced fragmented JSONL and concurrent events cannot advance a pending 
   await until(async () => await seqAt(options.checkpoint) === 4, 'final checkpoint');
   assert.equal(exports.length, 2);
   assert.deepEqual(run.logs, ['bmc-follow: start since=1', 'bmc-follow: exported seq=3', 'bmc-follow: exported seq=4']);
+});
+
+test('max wait prevents export starvation during a steady event stream', async t => {
+  const options = await workspace(t);
+  options.debounceMs = 100;
+  await writeFile(options.checkpoint, '{"seq":0}\n');
+  const exportedAt = [];
+  const run = mock(t, options, { handle: call => {
+    if (call.args[0] === 'export') exportedAt.push(Date.now());
+    return false;
+  } });
+  await until(() => run.live.length, 'follower started');
+  const start = Date.now();
+  let seq = 1;
+  run.live[0].stdout.write('{"seq":1}\n');
+  const stream = setInterval(() => run.live[0].stdout.write(`${JSON.stringify({ seq: ++seq })}\n`), 20);
+  try {
+    await until(() => exportedAt.length >= 2, 'two exports while events keep arriving', 2600);
+    const maxWait = 10 * options.debounceMs;
+    assert.ok(exportedAt[0] - start <= maxWait + 200, 'first export within max wait plus scheduling tolerance');
+    assert.ok(exportedAt[1] - exportedAt[0] <= maxWait + 200, 'later batches cannot starve either');
+    await until(async () => await seqAt(options.checkpoint) > 1, 'checkpoint advances during stream');
+  } finally { clearInterval(stream); }
+});
+
+test('stdin error logs and stops cleanly like EOF', async t => {
+  const options = await workspace(t);
+  options.stopOnStdinEof = true;
+  const run = mock(t, options);
+  await until(() => run.live.length, 'follower started');
+  run.stdin.emit('error', Object.assign(new Error('closed pipe'), { code: 'EPIPE' }));
+  assert.ok(await closesWithin(run.result));
+  assert.equal(await run.result, 0);
+  assert.ok(run.logs.includes('bmc-follow: stdin error: closed pipe'));
+  assert.equal(run.stdin.listenerCount('error'), 0);
+});
+
+test('stop-on-stdin-eof rejects a TTY before starting bd', async t => {
+  const options = await workspace(t);
+  options.stopOnStdinEof = true;
+  const stdin = new PassThrough();
+  stdin.isTTY = true;
+  const run = mock(t, options, { stdin });
+  assert.equal(await run.result, 1);
+  assert.match(run.logs.join('\n'), /requires piped stdin; TTY/);
+  assert.equal(run.calls.length, 0);
+});
+
+test('corrupt checkpoint rebuilds automatically before following', async t => {
+  for (const content of ['{broken', '{"seq":-1}', '{"seq":"2"}', 'null']) {
+    const options = await workspace(t);
+    await writeFile(options.checkpoint, content);
+    const run = mock(t, options, { head: 4 });
+    await until(() => run.live.length, 'follower started after corrupt checkpoint');
+    assert.equal(await seqAt(options.checkpoint), 4);
+    assert.ok(run.logs.includes('bmc-follow: rebuild reason=corrupt-checkpoint'));
+    run.signals.emit('SIGTERM');
+    assert.equal(await run.result, 0);
+  }
+});
+
+test('nested pretty JSON waits for the unindented closing brace', async t => {
+  const options = await workspace(t);
+  const run = mock(t, options);
+  await until(() => run.live.length, 'follower started');
+  run.live[0].stdout.write(`${JSON.stringify({ seq: 1, issue: { details: { title: 'nested' } } }, null, 2)}\n`);
+  await until(async () => await seqAt(options.checkpoint) === 1, 'nested record exported');
+});
+
+test('pretty JSON retains the 64 KiB byte cap', async t => {
+  const options = await workspace(t);
+  const run = mock(t, options);
+  await until(() => run.live.length, 'follower started');
+  run.live[0].stdout.write(`{\n  "payload": "${'é'.repeat(32768)}"\n`);
+  assert.ok(await closesWithin(run.result));
+  assert.equal(await run.result, 1);
+  assert.match(run.logs.join('\n'), /exceeds 64 KiB/);
+  assert.equal(await seqAt(options.checkpoint), 0);
+});
+
+for (const stage of ['export', 'refresh']) {
+  test(`stop lets in-flight ${stage} finish and cleans owned temporary files`, async t => {
+    const options = await workspace(t);
+    options.out = join(options.root, 'snapshot.js');
+    await writeFile(options.checkpoint, '{"seq":1}\n');
+    let held;
+    const run = mock(t, options, { head: 1, handle: call => {
+      if (!(stage === 'export' ? call.args[0] === 'export' : call.binary !== options.bd)) return false;
+      writeFileSync(`${call.args.at(-1)}.child.tmp`, 'partial');
+      held = call.child;
+      return true;
+    } });
+    await until(() => run.live.length, 'follower started');
+    run.live[0].stdout.write('{"seq":2}\n');
+    await until(() => held, 'writer started');
+    run.signals.emit('SIGTERM');
+    await delay(50);
+    assert.deepEqual(held.signals, [], 'writer not killed during grace');
+    held.finish();
+    assert.ok(await closesWithin(run.result));
+    assert.equal(await run.result, 0);
+    assert.equal(await seqAt(options.checkpoint), 2);
+    assert.equal(await readFile(options.out, 'utf8'), 'snapshot\n');
+    for (const path of [options.root, options.beadsDir]) assert.ok(!(await readdir(path)).some(name => name.endsWith('.tmp') || name.startsWith('.bmc-follow-')));
+  });
+
+  test(`stop bounds a stuck ${stage} and removes its scratch files without advancing checkpoint`, async t => {
+    const options = await workspace(t);
+    options.out = join(options.root, 'snapshot.js');
+    await writeFile(options.checkpoint, '{"seq":1}\n');
+    let held;
+    const run = mock(t, options, { head: 1, handle: call => {
+      if (!(stage === 'export' ? call.args[0] === 'export' : call.binary !== options.bd)) return false;
+      writeFileSync(`${call.args.at(-1)}.child.tmp`, 'partial');
+      held = call.child;
+      return true;
+    } });
+    await until(() => run.live.length, 'follower started');
+    run.live[0].stdout.write('{"seq":2}\n');
+    await until(() => held, 'writer started');
+    run.signals.emit('SIGTERM');
+    assert.ok(await closesWithin(run.result, 4500));
+    assert.equal(await run.result, 0);
+    assert.equal(await seqAt(options.checkpoint), 1);
+    assert.ok(held.signals.includes('SIGTERM'));
+    assert.ok(run.logs.includes('bmc-follow: export grace timeout'));
+    for (const path of [options.root, options.beadsDir]) assert.ok(!(await readdir(path)).some(name => name.endsWith('.tmp') || name.startsWith('.bmc-follow-')));
+  });
+}
+
+test('inherited child pipe cannot hold shutdown open forever', async t => {
+  const options = await workspace(t);
+  const run = mock(t, options);
+  await until(() => run.live.length, 'follower started');
+  const child = run.live[0];
+  child.kill = signal => { child.signals.push(signal); return true; };
+  run.signals.emit('SIGTERM');
+  assert.ok(await closesWithin(run.result, 4500));
+  assert.equal(await run.result, 0);
+  assert.match(run.logs.join('\n'), /child close timeout/);
+  assert.deepEqual(child.signals, ['SIGTERM', 'SIGKILL']);
+  assert.ok(child.stdout.destroyed && child.stderr.destroyed);
+  child.finish(null, 'SIGKILL');
+});
+
+test('expired teardown deadline still reports leftover PIDs', async () => {
+  await assert.rejects(waitForWorkspaceExit('/fixture', Date.now() - 1, [], () => [12345, 67890]),
+    /leftover PIDs: 12345, 67890/);
+});
+
+test('POSIX orphan query finds cwd-only and process-group children without selecting unrelated bd', () => {
+  const rows = '101 101 node helper\n102 101 bd events tail\n103 99 bd events tail\n104 99 bd events tail\n';
+  assert.deepEqual(posixWorkspacePids(rows, '/fixture', [{ pid: 101, group: true }],
+    pid => pid === 103 ? '/fixture' : '/elsewhere'), [101, 102, 103]);
 });
 
 for (const stage of ['export', 'refresh']) {
@@ -471,13 +658,14 @@ for (const source of ['IPC message', 'IPC disconnect', 'stdin EOF']) {
     let settled = false;
     run.result.then(() => { settled = true; });
     requestStop(run, source);
-    await until(() => exporting.signals.length && run.live[0].signals.length, 'both children asked to stop');
+    await until(() => run.live[0].signals.length, 'tail asked to stop');
+    assert.deepEqual(exporting.signals, [], 'export gets a grace period');
     run.live[0].finish(null, 'SIGTERM');
     await new Promise(resolveImmediate => setImmediate(resolveImmediate));
     assert.equal(settled, false, 'export has not closed yet');
-    exporting.finish(null, 'SIGTERM');
+    exporting.finish();
     assert.equal(await run.result, 0);
-    assert.equal(await seqAt(options.checkpoint), 1);
+    assert.equal(await seqAt(options.checkpoint), 2);
   });
 }
 
@@ -680,7 +868,7 @@ function launch(t, options, extra = [], stopVia = 'message') {
     cwd: dirname(helper), env: testEnv, windowsHide: true, detached: process.platform !== 'win32',
     stdio: stopVia === 'stdin' ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', 'ipc'],
   });
-  const lifetime = { pid: child.pid, start, end: Number.MAX_SAFE_INTEGER };
+  const lifetime = { pid: child.pid, start, end: Number.MAX_SAFE_INTEGER, group: process.platform !== 'win32' };
   options.pids.push(lifetime);
   let stderr = '';
   child.stdout.resume();
@@ -732,6 +920,10 @@ async function issueStatus(options, id) {
 test('real bd: close updates JSONL and snapshot without a later write; restart replays downtime', real, async t => {
   const options = await realWorkspace(t);
   assert.match(options.invoke('metrics'), /^Anonymous usage metrics: OFF/m);
+  const memoryKey = 'follow-memory-exclusion';
+  const memoryValue = 'FOLLOW_MEMORY_MUST_NOT_APPEAR_302';
+  options.invoke('remember', memoryValue, '--key', memoryKey);
+  assert.ok(options.invoke('memories').includes(memoryKey), 'fixture really contains a memory');
   const id = JSON.parse(options.invoke('create', 'live test', '--json')).id;
   const out = join(options.root, 'snapshot with spaces', 'orchestration-data.js');
   const first = launch(t, options, ['--out', out]);
@@ -744,6 +936,10 @@ test('real bd: close updates JSONL and snapshot without a later write; restart r
     if (!text) return false;
     const snapshot = JSON.parse(text.slice('window.BMC_SNAPSHOT = '.length).replace(/;\s*$/, ''));
     assert.equal(snapshot.orchestrator, undefined);
+    for (const marker of [memoryKey, memoryValue]) {
+      assert.ok(!text.includes(marker), 'snapshot excludes the created memory');
+      assert.ok(!(await readFile(join(options.beadsDir, 'issues.jsonl'), 'utf8')).includes(marker), 'export excludes the created memory');
+    }
     return JSON.parse(snapshot.issues_jsonl.trim()).status === 'closed';
   }, () => `snapshot reflects close\n${first.stderr()}`);
   await until(async () => (await seqAt(options.checkpoint)) >= 2, () => `close checkpoint\n${first.stderr()}`);

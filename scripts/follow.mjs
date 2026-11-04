@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { copyFile, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
-const usage = 'Usage: node scripts/follow.mjs --beads-dir <path/to/.beads> --checkpoint <file> [--bd <binary>] [--out <file>] [--debounce-ms <n>] [--stop-on-stdin-eof]';
+const usage = 'Usage: node scripts/follow.mjs --beads-dir <path/to/.beads> --checkpoint <file> [--bd <binary>] [--out <file>] [--debounce-ms <n>] [--stop-on-stdin-eof]\n--stop-on-stdin-eof requires piped stdin; a TTY is rejected with exit 1.';
+const exportGraceMs = 2000;
+const childKillMs = 1000;
+const childCloseMs = 1500;
 
 export function optionsFromArgs(args) {
   const { values } = parseArgs({ args, options: {
@@ -81,34 +84,65 @@ export async function follow(options, {
   const children = new Map();
   let stopping = false;
   let timer;
+  let batchStarted;
+  const maxWait = Math.min(debounceMs * 10, 2147483647);
   let exportJob;
+  let writing = false;
+  let abortWrite = false;
   let fatal;
   let killTimer;
+  let graceTimer;
+  let closeTimer;
+  const stagingDirs = new Set();
   let saved;
   let pending;
-  const stopChildren = () => {
-    for (const child of children.keys()) child.kill('SIGTERM');
-    killTimer ??= setTimeout(() => {
-      for (const child of children.keys()) child.kill('SIGKILL');
-    }, 1000);
+  const stopChildren = (includeWrites = false) => {
+    for (const [child, state] of children) {
+      if (!includeWrites && state.write) continue;
+      if (state.terminating) continue;
+      state.terminating = true;
+      child.kill('SIGTERM');
+    }
+    if (!killTimer) killTimer = setTimeout(() => {
+      killTimer = undefined;
+      for (const [child, state] of children) if (state.terminating) child.kill('SIGKILL');
+    }, childKillMs);
+    if (!closeTimer) closeTimer = setTimeout(() => {
+      closeTimer = undefined;
+      for (const [child, state] of children) {
+        if (!state.terminating) continue;
+        log(`bmc-follow: child close timeout pid=${child.pid ?? 'unknown'}`);
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.unref?.();
+        state.finish(null, 'SIGKILL');
+      }
+    }, childCloseMs);
+  };
+  const beginShutdown = () => {
+    clearTimeout(timer);
+    stopChildren();
+    if (writing && !graceTimer) graceTimer = setTimeout(() => {
+      log('bmc-follow: export grace timeout');
+      abortWrite = true;
+      stopChildren(true);
+    }, exportGraceMs);
   };
   const stop = () => {
     stopping = true;
-    clearTimeout(timer);
-    stopChildren();
+    beginShutdown();
   };
   const fail = error => {
     fatal ??= error;
-    clearTimeout(timer);
-    stopChildren();
+    beginShutdown();
   };
-  const checkActive = () => {
-    if (stopping) throw new Error('stopped');
+  const checkActive = (write = false) => {
+    if (abortWrite || (stopping && !write)) throw new Error('stopped');
     if (fatal) throw fatal;
   };
 
-  function command(binary, args, onLine) {
-    checkActive();
+  function command(binary, args, onLine, write = false) {
+    checkActive(write);
     const child = spawnChild(binary, args, {
       cwd: dirname(beadsDir), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
       // bd's detached send-metrics child inherits cwd and can lock the workspace
@@ -128,8 +162,9 @@ export async function follow(options, {
           // Events are JSONL, but bd 1.3.0's structured error is pretty JSON.
           if (pretty || line.trim() === '{') {
             pretty += `${line}\n`;
+            if (Buffer.byteLength(pretty) > 65536) throw new Error('journal JSON exceeds 64 KiB');
             try { record = JSON.parse(pretty); } catch (error) {
-              if (pretty.length > 65536 || line.trim() === '}') throw error;
+              if (line === '}') throw error;
               return;
             }
             pretty = '';
@@ -147,50 +182,99 @@ export async function follow(options, {
     // Resolve on close, not exit: stdout may still have records buffered at exit.
     let spawnError;
     child.on('error', error => { spawnError = error; });
-    const done = new Promise(resolveDone => child.once('close', (code, signal) => {
-      lines?.close();
-      children.delete(child);
-      resolveDone({ code, signal, stdout, stderr,
-        error: spawnError ?? parseError ?? (pretty ? new Error('incomplete journal JSON') : undefined) });
-    }));
-    children.set(child, done);
+    let finish;
+    const done = new Promise(resolveDone => {
+      finish = (code, signal) => {
+        lines?.close();
+        children.delete(child);
+        resolveDone({ code, signal, stdout, stderr,
+          error: spawnError ?? parseError ?? (pretty ? new Error('incomplete journal JSON') : undefined) });
+      };
+    });
+    child.once('close', finish);
+    children.set(child, { done, finish, write });
     return done;
   }
 
-  function requireSuccess(result, label) {
-    checkActive();
+  function requireSuccess(result, label, write = false) {
+    checkActive(write);
     if (result.error) throw result.error;
     if (result.code !== 0) throw new Error(`${label} failed (exit ${result.code ?? result.signal}): ${result.stderr.trim()}`);
     return result.stdout;
   }
 
-  async function exportAt(seq) {
-    requireSuccess(await command(bd, ['export', '-o', join(beadsDir, 'issues.jsonl')]), 'bd export');
-    if (out) {
-      const binary = process.platform === 'win32' ? 'pwsh' : 'sh';
-      const args = process.platform === 'win32'
-        ? ['-NoProfile', '-File', join(scriptsDir, 'refresh.ps1'), '-BeadsDir', beadsDir, '-NoBdEnrich', '-Out', out]
-        : [join(scriptsDir, 'refresh.sh'), '--beads-dir', beadsDir, '--no-bd-enrich', '--out', out];
-      requireSuccess(await command(binary, args), 'snapshot refresh');
+  async function cleanupStaged() {
+    for (const path of stagingDirs) {
+      // Only remove directories returned by mkdtemp in publish(), never glob
+      // scratch files belonging to other writers beside the real outputs.
+      await rm(path, { recursive: true, force: true });
+      stagingDirs.delete(path);
     }
+  }
+
+  async function publish(path, run) {
+    await mkdir(dirname(path), { recursive: true });
+    const target = await lstat(path).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+    if (target?.isSymbolicLink()) throw new Error(`refusing symlink output: ${path}`);
+    const directory = await mkdtemp(join(dirname(path), '.bmc-follow-'));
+    stagingDirs.add(directory);
+    const staged = join(directory, basename(path));
+    if (path === out) {
+      // refresh reads optional metadata beside --out. Preserve that behavior
+      // even though its output and scratch files now live in a private folder.
+      await copyFile(join(dirname(out), 'orchestration.meta.json'), join(directory, 'orchestration.meta.json'))
+        .catch(error => { if (error.code !== 'ENOENT') throw error; });
+    }
+    await run(staged);
+    checkActive(true);
+    await rename(staged, path);
+  }
+
+  async function exportAt(seq) {
     checkActive();
-    await saveCheckpoint(checkpoint, seq, renameCheckpoint);
-    saved = seq;
-    log(`bmc-follow: exported seq=${seq}`);
+    writing = true;
+    try {
+      await publish(join(beadsDir, 'issues.jsonl'), async staged => {
+        requireSuccess(await command(bd, ['export', '-o', staged], undefined, true), 'bd export', true);
+      });
+      if (out) {
+        const binary = process.platform === 'win32' ? 'pwsh' : 'sh';
+        const args = process.platform === 'win32'
+          ? ['-NoProfile', '-File', join(scriptsDir, 'refresh.ps1'), '-BeadsDir', beadsDir, '-NoBdEnrich', '-Out']
+          : [join(scriptsDir, 'refresh.sh'), '--beads-dir', beadsDir, '--no-bd-enrich', '--out'];
+        await publish(out, async staged => {
+          requireSuccess(await command(binary, [...args, staged], undefined, true), 'snapshot refresh', true);
+        });
+      }
+      checkActive(true);
+      await saveCheckpoint(checkpoint, seq, renameCheckpoint);
+      saved = seq;
+      log(`bmc-follow: exported seq=${seq}`);
+    } finally {
+      writing = false;
+      clearTimeout(graceTimer);
+      graceTimer = undefined;
+      await cleanupStaged();
+    }
   }
 
   function scheduleExport() {
     clearTimeout(timer);
-    if (stopping || fatal || exportJob || pending <= saved) return;
+    if (stopping || fatal || pending <= saved) return;
+    batchStarted ??= Date.now();
+    if (exportJob) return;
     timer = setTimeout(() => {
       // Freeze the watermark before starting the export. Events arriving while
       // export/refresh runs must trigger another export, never advance this one.
       const seq = pending;
+      batchStarted = undefined;
       exportJob = exportAt(seq).catch(fail).finally(() => {
         exportJob = undefined;
         scheduleExport();
       });
-    }, debounceMs);
+    }, Math.min(debounceMs, Math.max(0, maxWait - (Date.now() - batchStarted))));
   }
 
   async function tail(since, live) {
@@ -231,6 +315,7 @@ export async function follow(options, {
 
   async function rebuild(reason, head) {
     clearTimeout(timer);
+    batchStarted = undefined;
     if (exportJob) await exportJob;
     clearTimeout(timer);
     checkActive();
@@ -244,15 +329,21 @@ export async function follow(options, {
   signals.on('SIGTERM', stop);
   const ipc = typeof signals.send === 'function';
   const onMessage = message => { if (message?.type === 'stop') stop(); };
+  const onStdinError = error => {
+    log(`bmc-follow: stdin error: ${error.message}`);
+    stop();
+  };
+  stdin.on('error', onStdinError);
   if (ipc) {
     signals.on('disconnect', stop);
     signals.on('message', onMessage);
   }
-  if (options.stopOnStdinEof) {
+  if (options.stopOnStdinEof && !stdin.isTTY) {
     stdin.on('end', stop);
     stdin.resume();
   }
   try {
+    if (options.stopOnStdinEof && stdin.isTTY) throw new Error('--stop-on-stdin-eof requires piped stdin; TTY input is not supported');
     // A parent can close its channel before startup has finished.
     if ((ipc && signals.connected === false) || (options.stopOnStdinEof && stdin.readableEnded)) stop();
     const version = requireSuccess(await command(bd, ['version']), 'bd version');
@@ -265,14 +356,20 @@ export async function follow(options, {
       log('bmc-follow: events-journal must be enabled (bd config set events-journal true)');
       return 4;
     }
+    let rebuildReason = 'initial';
+    let checkpointText;
     try {
-      saved = sequence(JSON.parse(await readFile(checkpoint, 'utf8')).seq);
+      checkpointText = await readFile(checkpoint, 'utf8');
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
+    if (checkpointText !== undefined) {
+      try { saved = sequence(JSON.parse(checkpointText).seq); }
+      catch { rebuildReason = 'corrupt-checkpoint'; }
+    }
     log(`bmc-follow: start since=${saved ?? 0}`);
     const journalState = await tail(0, false);
-    if (saved === undefined) await rebuild('initial', journalState.head);
+    if (saved === undefined) await rebuild(rebuildReason, journalState.head);
     else if (saved > journalState.head) await rebuild('replica-reset', journalState.head);
     pending = saved;
     while (!stopping) {
@@ -287,13 +384,17 @@ export async function follow(options, {
   } finally {
     stopping = true;
     clearTimeout(timer);
-    stopChildren();
-    // Escalate only if a child ignores SIGTERM; wait for it before exiting.
+    beginShutdown();
     try {
-      await Promise.all([...children.values()]);
       if (exportJob) await exportJob;
+      stopChildren(true);
+      await Promise.all([...children.values()].map(state => state.done));
+      await cleanupStaged();
     } finally {
       clearTimeout(killTimer);
+      clearTimeout(closeTimer);
+      clearTimeout(graceTimer);
+      stdin.off('error', onStdinError);
       signals.off('SIGINT', stop);
       signals.off('SIGTERM', stop);
       if (ipc) {
