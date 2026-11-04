@@ -4,17 +4,19 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
-const usage = 'Usage: node scripts/follow.mjs --beads-dir <path/to/.beads> --checkpoint <file> [--bd <binary>] [--out <file>] [--debounce-ms <n>]';
+const usage = 'Usage: node scripts/follow.mjs --beads-dir <path/to/.beads> --checkpoint <file> [--bd <binary>] [--out <file>] [--debounce-ms <n>] [--stop-on-stdin-eof]';
 
 export function optionsFromArgs(args) {
   const { values } = parseArgs({ args, options: {
     'beads-dir': { type: 'string' }, checkpoint: { type: 'string' },
     bd: { type: 'string', default: 'bd' }, out: { type: 'string' },
     'debounce-ms': { type: 'string', default: '300' },
+    'stop-on-stdin-eof': { type: 'boolean', default: false },
     help: { type: 'boolean' },
   } });
   if (values.help) return null;
@@ -31,7 +33,7 @@ export function optionsFromArgs(args) {
   if (checkpoint === join(beadsDir, 'issues.jsonl') || checkpoint === out || out === join(beadsDir, 'issues.jsonl')) {
     throw new Error('checkpoint, issues.jsonl and --out must be different files');
   }
-  return { beadsDir, checkpoint, bd, out, debounceMs };
+  return { beadsDir, checkpoint, bd, out, debounceMs, stopOnStdinEof: values['stop-on-stdin-eof'] };
 }
 
 export function supportedVersion(text) {
@@ -47,12 +49,23 @@ function sequence(value) {
   return value;
 }
 
-async function saveCheckpoint(path, seq) {
+async function saveCheckpoint(path, seq, renameCheckpoint) {
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
     await writeFile(temp, `${JSON.stringify({ seq })}\n`, { flag: 'wx', flush: true });
-    await rename(temp, path);
+    // Windows readers/scanners can briefly deny replacement. Keep the old
+    // checkpoint intact and retry the atomic rename, never unlink it first.
+    // The complete linear wait budget is 25 * (1 + ... + 8) = 900 ms.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await renameCheckpoint(temp, path);
+        break;
+      } catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt === 8) throw error;
+        await delay(25 * (attempt + 1));
+      }
+    }
   } finally {
     await rm(temp, { force: true });
   }
@@ -60,7 +73,10 @@ async function saveCheckpoint(path, seq) {
 
 // The spawn/log seams let tests exercise failures and races without a bd install.
 // Every production child is spawned directly (no shell or detached process).
-export async function follow(options, { spawnChild = spawn, log = line => console.error(line), signals = process } = {}) {
+export async function follow(options, {
+  spawnChild = spawn, log = line => console.error(line), signals = process, stdin = process.stdin,
+  renameCheckpoint = rename,
+} = {}) {
   const { beadsDir, checkpoint, bd, out, debounceMs } = options;
   const children = new Map();
   let stopping = false;
@@ -95,6 +111,9 @@ export async function follow(options, { spawnChild = spawn, log = line => consol
     checkActive();
     const child = spawnChild(binary, args, {
       cwd: dirname(beadsDir), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+      // bd's detached send-metrics child inherits cwd and can lock the workspace
+      // after bd exits. Keep this helper's process lifetime fully supervised.
+      ...(binary === bd ? { env: { ...process.env, BD_DISABLE_EVENT_FLUSH: '1' } } : {}),
     });
     let stdout = '';
     let stderr = '';
@@ -155,7 +174,7 @@ export async function follow(options, { spawnChild = spawn, log = line => consol
       requireSuccess(await command(binary, args), 'snapshot refresh');
     }
     checkActive();
-    await saveCheckpoint(checkpoint, seq);
+    await saveCheckpoint(checkpoint, seq, renameCheckpoint);
     saved = seq;
     log(`bmc-follow: exported seq=${seq}`);
   }
@@ -223,7 +242,19 @@ export async function follow(options, { spawnChild = spawn, log = line => consol
 
   signals.on('SIGINT', stop);
   signals.on('SIGTERM', stop);
+  const ipc = typeof signals.send === 'function';
+  const onMessage = message => { if (message?.type === 'stop') stop(); };
+  if (ipc) {
+    signals.on('disconnect', stop);
+    signals.on('message', onMessage);
+  }
+  if (options.stopOnStdinEof) {
+    stdin.on('end', stop);
+    stdin.resume();
+  }
   try {
+    // A parent can close its channel before startup has finished.
+    if ((ipc && signals.connected === false) || (options.stopOnStdinEof && stdin.readableEnded)) stop();
     const version = requireSuccess(await command(bd, ['version']), 'bd version');
     if (!supportedVersion(version)) {
       log('bmc-follow: bd >= 1.3.0 is required');
@@ -265,6 +296,15 @@ export async function follow(options, { spawnChild = spawn, log = line => consol
       clearTimeout(killTimer);
       signals.off('SIGINT', stop);
       signals.off('SIGTERM', stop);
+      if (ipc) {
+        signals.off('disconnect', stop);
+        signals.off('message', onMessage);
+        if (signals.connected) signals.disconnect();
+      }
+      if (options.stopOnStdinEof) {
+        stdin.off('end', stop);
+        stdin.pause();
+      }
     }
   }
 }
