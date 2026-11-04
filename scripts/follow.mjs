@@ -111,6 +111,9 @@ export async function follow(options, {
     checkActive();
     const child = spawnChild(binary, args, {
       cwd: dirname(beadsDir), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+      // bd's detached send-metrics child inherits cwd and can lock the workspace
+      // after bd exits. Keep this helper's process lifetime fully supervised.
+      ...(binary === bd ? { env: { ...process.env, BD_DISABLE_EVENT_FLUSH: '1' } } : {}),
     });
     let stdout = '';
     let stderr = '';
