@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { copyFile, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -13,6 +13,7 @@ const usage = 'Usage: node scripts/follow.mjs --beads-dir <path/to/.beads> --che
 const exportGraceMs = 2000;
 const childKillMs = 1000;
 const childCloseMs = 1500;
+const staleStagingMs = 10 * 60 * 1000;
 
 export function optionsFromArgs(args) {
   const { values } = parseArgs({ args, options: {
@@ -52,23 +53,26 @@ function sequence(value) {
   return value;
 }
 
+async function renameWithRetry(source, destination, renameFile = rename) {
+  // Windows readers/scanners can briefly deny atomic replacement. Never
+  // unlink the destination first; the linear wait budget is 900 ms.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await renameFile(source, destination);
+      return;
+    } catch (error) {
+      if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt === 8) throw error;
+      await delay(25 * (attempt + 1));
+    }
+  }
+}
+
 async function saveCheckpoint(path, seq, renameCheckpoint) {
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
     await writeFile(temp, `${JSON.stringify({ seq })}\n`, { flag: 'wx', flush: true });
-    // Windows readers/scanners can briefly deny replacement. Keep the old
-    // checkpoint intact and retry the atomic rename, never unlink it first.
-    // The complete linear wait budget is 25 * (1 + ... + 8) = 900 ms.
-    for (let attempt = 0; ; attempt++) {
-      try {
-        await renameCheckpoint(temp, path);
-        break;
-      } catch (error) {
-        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt === 8) throw error;
-        await delay(25 * (attempt + 1));
-      }
-    }
+    await renameWithRetry(temp, path, renameCheckpoint);
   } finally {
     await rm(temp, { force: true });
   }
@@ -78,7 +82,7 @@ async function saveCheckpoint(path, seq, renameCheckpoint) {
 // Every production child is spawned directly (no shell or detached process).
 export async function follow(options, {
   spawnChild = spawn, log = line => console.error(line), signals = process, stdin = process.stdin,
-  renameCheckpoint = rename,
+  renameCheckpoint = rename, renameOutput = rename, removeStaged = rm,
 } = {}) {
   const { beadsDir, checkpoint, bd, out, debounceMs } = options;
   const children = new Map();
@@ -90,9 +94,7 @@ export async function follow(options, {
   let writing = false;
   let abortWrite = false;
   let fatal;
-  let killTimer;
   let graceTimer;
-  let closeTimer;
   const stagingDirs = new Set();
   let saved;
   let pending;
@@ -101,23 +103,18 @@ export async function follow(options, {
       if (!includeWrites && state.write) continue;
       if (state.terminating) continue;
       state.terminating = true;
-      child.kill('SIGTERM');
-    }
-    if (!killTimer) killTimer = setTimeout(() => {
-      killTimer = undefined;
-      for (const [child, state] of children) if (state.terminating) child.kill('SIGKILL');
-    }, childKillMs);
-    if (!closeTimer) closeTimer = setTimeout(() => {
-      closeTimer = undefined;
-      for (const [child, state] of children) {
-        if (!state.terminating) continue;
+      // Each child gets the full intervals from its own SIGTERM, including
+      // writers terminated only after the export grace period has elapsed.
+      state.killTimer = setTimeout(() => child.kill('SIGKILL'), childKillMs);
+      state.closeTimer = setTimeout(() => {
         log(`bmc-follow: child close timeout pid=${child.pid ?? 'unknown'}`);
         child.stdout.destroy();
         child.stderr.destroy();
         child.unref?.();
         state.finish(null, 'SIGKILL');
-      }
-    }, childCloseMs);
+      }, childCloseMs);
+      child.kill('SIGTERM');
+    }
   };
   const beginShutdown = () => {
     clearTimeout(timer);
@@ -185,6 +182,9 @@ export async function follow(options, {
     let finish;
     const done = new Promise(resolveDone => {
       finish = (code, signal) => {
+        const state = children.get(child);
+        clearTimeout(state?.killTimer);
+        clearTimeout(state?.closeTimer);
         lines?.close();
         children.delete(child);
         resolveDone({ code, signal, stdout, stderr,
@@ -207,8 +207,38 @@ export async function follow(options, {
     for (const path of stagingDirs) {
       // Only remove directories returned by mkdtemp in publish(), never glob
       // scratch files belonging to other writers beside the real outputs.
-      await rm(path, { recursive: true, force: true });
-      stagingDirs.delete(path);
+      if (await removeStagingDirectory(path)) stagingDirs.delete(path);
+    }
+  }
+
+  async function removeStagingDirectory(path) {
+    try {
+      await removeStaged(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      return true;
+    } catch (error) {
+      log(`bmc-follow: staging cleanup failed path=${path}: ${error.message}`);
+      return false;
+    }
+  }
+
+  async function cleanupStaleStaging() {
+    const cutoff = Date.now() - staleStagingMs;
+    for (const parent of new Set([beadsDir, ...(out ? [dirname(out)] : [])])) {
+      try {
+        for (const entry of await readdir(parent, { withFileTypes: true })) {
+          if (!entry.name.startsWith('.bmc-follow-') || !entry.isDirectory()) continue;
+          const path = join(parent, entry.name);
+          try {
+            const info = await lstat(path);
+            if (!info.isDirectory() || info.mtimeMs >= cutoff) continue;
+            if (await removeStagingDirectory(path)) log(`bmc-follow: removed stale staging path=${path}`);
+          } catch (error) {
+            if (error.code !== 'ENOENT') log(`bmc-follow: staging inspection failed path=${path}: ${error.message}`);
+          }
+        }
+      } catch (error) {
+        if (error.code !== 'ENOENT') log(`bmc-follow: staging scan failed path=${parent}: ${error.message}`);
+      }
     }
   }
 
@@ -229,7 +259,7 @@ export async function follow(options, {
     }
     await run(staged);
     checkActive(true);
-    await rename(staged, path);
+    await renameWithRetry(staged, path, renameOutput);
   }
 
   async function exportAt(seq) {
@@ -318,6 +348,7 @@ export async function follow(options, {
     batchStarted = undefined;
     if (exportJob) await exportJob;
     clearTimeout(timer);
+    batchStarted = undefined;
     checkActive();
     log(`bmc-follow: rebuild reason=${reason}`);
     // Read head BEFORE the full export so concurrent writes are replayed.
@@ -356,6 +387,7 @@ export async function follow(options, {
       log('bmc-follow: events-journal must be enabled (bd config set events-journal true)');
       return 4;
     }
+    await cleanupStaleStaging();
     let rebuildReason = 'initial';
     let checkpointText;
     try {
@@ -391,8 +423,10 @@ export async function follow(options, {
       await Promise.all([...children.values()].map(state => state.done));
       await cleanupStaged();
     } finally {
-      clearTimeout(killTimer);
-      clearTimeout(closeTimer);
+      for (const state of children.values()) {
+        clearTimeout(state.killTimer);
+        clearTimeout(state.closeTimer);
+      }
       clearTimeout(graceTimer);
       stdin.off('error', onStdinError);
       signals.off('SIGINT', stop);

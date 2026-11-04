@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, readlinkSync, writeFileSync } from 'node:fs';
-import { chmod, mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -242,6 +242,7 @@ function mock(t, options, overrides = {}) {
   };
   const result = follow(options, {
     spawnChild, log: line => logs.push(line), signals, stdin, renameCheckpoint: overrides.renameCheckpoint,
+    renameOutput: overrides.renameOutput, removeStaged: overrides.removeStaged,
   });
   options.cleanups.push(async deadline => {
     signals.emit('SIGTERM');
@@ -328,6 +329,104 @@ test('persistent checkpoint replacement failure preserves saved sequence and sto
   assert.equal(await seqAt(options.checkpoint), 1);
   assert.ok(run.calls.every(call => call.child.closed));
   assert.ok(!(await readdir(options.root)).some(name => name.endsWith('.tmp')));
+});
+
+test('output replacement retries sharing violations for export and snapshot', async t => {
+  const options = await workspace(t);
+  options.out = join(options.root, 'snapshot.js');
+  const issues = join(options.beadsDir, 'issues.jsonl');
+  for (const path of [issues, options.out]) await writeFile(path, 'old output');
+  const attempts = new Map();
+  const run = mock(t, options, { renameOutput: async (source, destination) => {
+    const attempt = (attempts.get(destination) ?? 0) + 1;
+    attempts.set(destination, attempt);
+    assert.equal(await readFile(destination, 'utf8'), 'old output');
+    if (process.platform === 'win32' && attempt <= 3) {
+      throw Object.assign(new Error('sharing violation'), { code: ['EPERM', 'EACCES', 'EBUSY'][attempt - 1] });
+    }
+    return rename(source, destination);
+  } });
+  await until(() => run.live.length, 'both outputs published');
+  for (const path of [issues, options.out]) {
+    assert.ok(attempts.get(path) >= (process.platform === 'win32' ? 4 : 1));
+    assert.notEqual(await readFile(path, 'utf8'), 'old output');
+  }
+  assert.equal(await seqAt(options.checkpoint), 0);
+});
+
+test('persistent output replacement failure preserves output and checkpoint', async t => {
+  const options = await workspace(t);
+  const issues = join(options.beadsDir, 'issues.jsonl');
+  await writeFile(issues, 'old output');
+  await writeFile(options.checkpoint, '{"seq":1}\n');
+  let attempts = 0;
+  const run = mock(t, options, { head: 1, renameOutput: async () => {
+    attempts++;
+    throw Object.assign(new Error('persistent output lock'), { code: 'EBUSY' });
+  } });
+  await until(() => run.live.length, 'follower started');
+  run.live[0].stdout.write('{"seq":2}\n');
+  assert.equal(await run.result, 1);
+  assert.equal(attempts, process.platform === 'win32' ? 9 : 1);
+  assert.equal(await readFile(issues, 'utf8'), 'old output');
+  assert.equal(await seqAt(options.checkpoint), 1);
+  assert.ok(!(await readdir(options.beadsDir)).some(name => name.startsWith('.bmc-follow-')));
+});
+
+test('stale staging cleanup only removes old directories beside configured outputs', async t => {
+  const options = await workspace(t);
+  options.out = join(options.root, 'docs', 'snapshot.js');
+  const elsewhere = join(options.root, 'unrelated');
+  await mkdir(dirname(options.out));
+  await mkdir(elsewhere);
+  const old = new Date(Date.now() - 11 * 60 * 1000);
+  const preserved = [];
+  const removed = [];
+  for (const parent of [options.beadsDir, dirname(options.out), elsewhere]) {
+    const stale = await mkdtemp(join(parent, '.bmc-follow-'));
+    await writeFile(join(stale, 'partial'), 'partial export');
+    await utimes(stale, old, old);
+    (parent === elsewhere ? preserved : removed).push(stale);
+    preserved.push(await mkdtemp(join(parent, '.bmc-follow-')));
+    const other = join(parent, 'other-staging');
+    await mkdir(other);
+    await utimes(other, old, old);
+    preserved.push(other);
+    const file = join(parent, '.bmc-follow-file');
+    await writeFile(file, 'not a directory');
+    await utimes(file, old, old);
+    preserved.push(file);
+  }
+  // Junctions need no Windows symlink privilege; neither kind may be followed.
+  const link = join(options.beadsDir, '.bmc-follow-link');
+  await symlink(preserved[0], link, process.platform === 'win32' ? 'junction' : 'dir');
+  preserved.push(link);
+  const run = mock(t, options);
+  await until(() => run.live.length, 'startup cleanup completed');
+  for (const path of removed) {
+    await assert.rejects(readdir(path), { code: 'ENOENT' });
+    assert.ok(run.logs.includes(`bmc-follow: removed stale staging path=${path}`));
+  }
+  for (const path of preserved) assert.ok((await readdir(dirname(path))).includes(path.slice(dirname(path).length + 1)));
+  assert.equal(run.logs.filter(line => line.includes('removed stale staging')).length, 2);
+});
+
+test('staging cleanup retries and logs persistent locks without failing shutdown', async t => {
+  const options = await workspace(t);
+  const removals = [];
+  const run = mock(t, options, { removeStaged: async (path, settings) => {
+    removals.push(path);
+    assert.equal(settings.recursive, true);
+    assert.equal(settings.maxRetries, 3);
+    assert.equal(settings.retryDelay, 100);
+    throw Object.assign(new Error('busy staging directory'), { code: 'EBUSY' });
+  } });
+  await until(() => run.live.length, 'cleanup failure does not stop following');
+  run.signals.emit('SIGTERM');
+  assert.equal(await run.result, 0);
+  assert.equal(removals.length, 2, 'failed export cleanup is retried at shutdown');
+  assert.ok(run.logs.filter(line => line.startsWith('bmc-follow: staging cleanup failed path=')).length === 2);
+  assert.equal(await seqAt(options.checkpoint), 0);
 });
 
 test('initial rebuild captures head before export, uses workspace cwd and refresh flags', async t => {
@@ -575,6 +674,39 @@ test('truncation rebuilds from error head and keeps following', async t => {
   await until(async () => await seqAt(options.checkpoint) === 10, 'post-rebuild export');
 });
 
+test('the first event after rebuild waits for the debounce', async t => {
+  const options = await workspace(t);
+  options.debounceMs = 100;
+  await writeFile(options.checkpoint, '{"seq":1}\n');
+  const writers = [];
+  const run = mock(t, options, { head: 1, handle: call => {
+    if (call.args[0] !== 'export') return false;
+    writers.push(call.child);
+    return true;
+  } });
+  await until(() => run.live.length, 'follower started');
+  run.live[0].stdout.write('{"seq":2}\n');
+  await until(() => writers.length === 1, 'export in flight');
+  run.live[0].stdout.write('{"seq":3}\n');
+  run.live[0].stdout.write('{"code":"events_journal_truncated","floor":8,"head":9}\n');
+  run.live[0].finish(1);
+  await delay(30); // Let rebuild start waiting for the in-flight export.
+  writers[0].finish();
+  await until(() => writers.length === 2, 'rebuild export started');
+  // Exceed maxWait while rebuilding: a leaked batch start makes the next
+  // live event export immediately instead of receiving its own debounce.
+  await delay(options.debounceMs * 10 + 100);
+  writers[1].finish();
+  await until(() => run.live.length === 2, 'following after rebuild');
+  assert.equal(await seqAt(options.checkpoint), 9);
+  run.live[1].stdout.write('{"seq":10}\n');
+  await delay(50);
+  assert.equal(writers.length, 2, 'first event still inside debounce');
+  await until(() => writers.length === 3, 'debounced export started');
+  writers[2].finish();
+  await until(async () => await seqAt(options.checkpoint) === 10, 'event exported');
+});
+
 test('a checkpoint above head triggers replica-reset, even for an empty journal', async t => {
   const options = await workspace(t);
   await writeFile(options.checkpoint, '{"seq":100}\n');
@@ -698,6 +830,37 @@ test('shutdown escalates if a child ignores SIGTERM', async t => {
   run.signals.emit('SIGTERM');
   assert.equal(await run.result, 0);
   assert.deepEqual(child.signals, ['SIGKILL']);
+});
+
+test('writer escalation keeps a full second after SIGTERM when tail close times out', async t => {
+  const options = await workspace(t);
+  await writeFile(options.checkpoint, '{"seq":1}\n');
+  let writer;
+  const run = mock(t, options, { head: 1, handle: call => {
+    if (call.args[0] !== 'export') return false;
+    writer = call.child;
+    return true;
+  } });
+  await until(() => run.live.length, 'follower started');
+  run.live[0].stdout.write('{"seq":2}\n');
+  await until(() => writer, 'writer started');
+  const tail = run.live[0];
+  tail.kill = signal => { tail.signals.push(signal); return true; };
+  const times = new Map();
+  writer.kill = signal => {
+    writer.signals.push(signal);
+    times.set(signal, performance.now());
+    if (signal === 'SIGKILL') writer.finish(null, signal);
+    return true;
+  };
+  run.signals.emit('SIGTERM');
+  assert.ok(await closesWithin(run.result, 4500));
+  assert.equal(await run.result, 0);
+  tail.finish(null, 'SIGKILL');
+  assert.deepEqual(writer.signals, ['SIGTERM', 'SIGKILL']);
+  assert.ok(times.get('SIGKILL') - times.get('SIGTERM') >= 990, 'writer gets its own one-second escalation interval');
+  assert.ok(run.logs.some(line => line.includes('child close timeout')));
+  assert.equal(await seqAt(options.checkpoint), 1);
 });
 
 function command(options, binary, args) {
