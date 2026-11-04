@@ -4,6 +4,8 @@
 
 ![bd-mission-control panel](docs/screenshot.png)
 
+The live demo uses fictional issues from [`demo/issues.jsonl`](demo/issues.jsonl). Regenerate it with `node scripts/build-demo.mjs`; the build does not read the project's tracker or call `bd`.
+
 ## Quickstart
 
 The panel auto-loads two optional sibling files when they exist:
@@ -157,15 +159,15 @@ Philosophy: curation enriches, never required.
     }
   },
   "beads": {
-    "bmc-9": {
-      "label": "README public face",
+    "demo-9": {
+      "label": "Observatory visitor guide",
       "phase": "docs",
       "track": "DOCS",
-      "note": "Keep README and real behavior aligned"
+      "note": "Include the evening telescope schedule"
     },
-    "bmc-10": {
+    "demo-10": {
       "flag": true,
-      "note": "Release gate depends on verified docs"
+      "note": "Opening night depends on the visitor guide"
     }
   }
 }

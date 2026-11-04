@@ -135,16 +135,16 @@ test("nextTheme cycles auto, dark, light", () => {
 
 test("matchesSearch checks id, label, track, and assignee case-insensitively", () => {
   const card = {
-    id: "bmc-4",
+    id: "demo-4",
     label: "Panel behaviors",
     track: "UI",
-    assignee: "codex-lavoro"
+    assignee: "agent-a"
   };
 
   assert.equal(matchesSearch(card, ""), true);
   assert.equal(matchesSearch(card, "behaviors"), true);
   assert.equal(matchesSearch(card, "ui"), true);
-  assert.equal(matchesSearch(card, "CODEX"), true);
+  assert.equal(matchesSearch(card, "AGENT-A"), true);
   assert.equal(matchesSearch(card, "missing"), false);
 });
 
@@ -152,7 +152,7 @@ test("applyCardFilters composes status, track, and search with AND semantics", (
   const cards = [
     { id: "a-1", label: "Render wave", track: "UI", assignee: "codex", state: "ready" },
     { id: "a-2", label: "Refresh loop", track: "CORE", assignee: "codex", state: "inprogress" },
-    { id: "a-3", label: "Blocked card", track: "UI", assignee: "agy", state: "blocked" }
+    { id: "a-3", label: "Blocked card", track: "UI", assignee: "agent-b", state: "blocked" }
   ];
 
   assert.deepEqual(
@@ -180,16 +180,16 @@ test("computeGridFingerprint is deterministic and ignores timestamp-only source 
   };
   const modelA = {
     waves: [
-      { key: "wave-1", title: "Wave 1", subtitle: "1/1 done", ids: ["bmc-21"] }
+      { key: "wave-1", title: "Wave 1", subtitle: "1/1 done", ids: ["demo-21"] }
     ],
     beads: {
-      "bmc-21": {
+      "demo-21": {
         state: "inprogress",
         phase: "wave:8",
         label: "Fix refresh flicker",
         track: "UI",
         thinking: "medhi",
-        assignee: "codex-lavoro",
+        assignee: "agent-a",
         blockedBy: [],
         note: "",
         flag: false,
@@ -201,11 +201,11 @@ test("computeGridFingerprint is deterministic and ignores timestamp-only source 
 
   const modelB = {
     waves: [
-      { key: "wave-1", title: "Wave 1", subtitle: "1/1 done", ids: ["bmc-21"] }
+      { key: "wave-1", title: "Wave 1", subtitle: "1/1 done", ids: ["demo-21"] }
     ],
     beads: {
-      "bmc-21": {
-        ...modelA.beads["bmc-21"],
+      "demo-21": {
+        ...modelA.beads["demo-21"],
         updated_at: "2026-07-11T12:05:00Z"
       }
     }
@@ -218,16 +218,16 @@ test("computeGridFingerprint is deterministic and ignores timestamp-only source 
 test("computeGridFingerprint changes when rendered card fields or filters change", () => {
   const baseModel = {
     waves: [
-      { key: "wave-1", title: "Wave 1", subtitle: "", ids: ["bmc-21"] }
+      { key: "wave-1", title: "Wave 1", subtitle: "", ids: ["demo-21"] }
     ],
     beads: {
-      "bmc-21": {
+      "demo-21": {
         state: "ready",
         phase: "wave:8",
         label: "Fix refresh flicker",
         track: "UI",
         thinking: "medhi",
-        assignee: "codex-lavoro",
+        assignee: "agent-a",
         blockedBy: [],
         note: "",
         flag: false,
@@ -240,8 +240,8 @@ test("computeGridFingerprint changes when rendered card fields or filters change
   const changedStatus = {
     ...baseModel,
     beads: {
-      "bmc-21": {
-        ...baseModel.beads["bmc-21"],
+      "demo-21": {
+        ...baseModel.beads["demo-21"],
         state: "blocked"
       }
     }
@@ -250,9 +250,9 @@ test("computeGridFingerprint changes when rendered card fields or filters change
   const changedAssignee = {
     ...baseModel,
     beads: {
-      "bmc-21": {
-        ...baseModel.beads["bmc-21"],
-        assignee: "agy"
+      "demo-21": {
+        ...baseModel.beads["demo-21"],
+        assignee: "agent-b"
       }
     }
   };
@@ -260,8 +260,8 @@ test("computeGridFingerprint changes when rendered card fields or filters change
   const changedVerification = {
     ...baseModel,
     beads: {
-      "bmc-21": {
-        ...baseModel.beads["bmc-21"],
+      "demo-21": {
+        ...baseModel.beads["demo-21"],
         verification: "pass"
       }
     }

@@ -1,4 +1,4 @@
-import { readFile, mkdir, mkdtemp, writeFile, chmod } from 'node:fs/promises';
+import { readFile, mkdir, mkdtemp, writeFile, chmod, rm } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -42,10 +42,6 @@ async function awaitableRead(filePath) {
 function extractIssues(snapshot) {
   assert.equal(typeof snapshot.issues_jsonl, 'string', 'snapshot should carry issues_jsonl');
   return parseJSONL(snapshot.issues_jsonl);
-}
-
-function makeTempPath(name) {
-  return resolve(tmpdir(), name);
 }
 
 function posixPath(filePath) {
@@ -120,22 +116,34 @@ function flagValue(argv, flag) {
 }
 
 // Windows can expose the same directory under both its long name and an 8.3
-// short name (e.g. TEMP resolving to `...\MARCOC~1\...` while PowerShell's
-// own GetFullPath returns `...\MarcoCardia\...`) — resolve through the real
+// short name (e.g. TEMP resolving to `...\LONGNA~1\...` while PowerShell's
+// own GetFullPath returns `...\LongName\...`) — resolve through the real
 // filesystem entry so path comparisons aren't tripped up by that, not just
 // string-normalize.
 function canonicalPath(p) {
   // realpathSync's default (JS-based) implementation does not resolve
-  // Windows 8.3 short names (e.g. `MARCOC~1`) to their long form; .native
+  // Windows 8.3 short names (e.g. `LONGNA~1`) to their long form; .native
   // (the real OS syscall) does.
   return realpathSync.native(resolve(p));
 }
 
-test('refresh scripts generate equivalent string-payload snapshots', async () => {
-  const psOut = makeTempPath('bmc-refresh-a3-ps.js');
-  const shOut = posixPath(makeTempPath('bmc-refresh-a3-sh.js'));
+test('refresh scripts generate equivalent string-payload snapshots', async (t) => {
+  const projectRoot = await mkdtemp(join(tmpdir(), 'bmc-refresh-equivalence-'));
+  t.after(() => rm(projectRoot, { recursive: true, force: true }));
+  await mkdir(join(projectRoot, '.beads'));
+  const fixture = [
+    { id: 'demo-refresh-1', title: 'Lantern \u2603', status: 'open', issue_type: 'task', description: 'Line one\nLine two\u0001' },
+    { id: 'demo-refresh-2', title: 'Fold the paper map', status: 'closed', issue_type: 'task' },
+  ];
+  await writeFile(join(projectRoot, '.beads', 'issues.jsonl'), fixture.map(issue => JSON.stringify(issue)).join('\n') + '\n', 'utf8');
+  const psOut = join(projectRoot, 'snapshot-ps.js');
+  const shOut = posixPath(join(projectRoot, 'snapshot-sh.js'));
   const ps1 = hasPowerShell();
   const sh1 = hasSh();
+  if (!ps1 && !sh1) {
+    t.skip('Neither PowerShell nor sh is available to generate snapshots');
+    return;
+  }
 
   if (ps1) {
     const ps = run('powershell', [
@@ -143,16 +151,16 @@ test('refresh scripts generate equivalent string-payload snapshots', async () =>
       '-ExecutionPolicy',
       'Bypass',
       '-File',
-      'scripts/refresh.ps1',
+      resolve('scripts/refresh.ps1'),
       '-Out',
       psOut,
       '-NoBdEnrich',
-    ]);
+    ], { cwd: projectRoot });
     assert.equal(ps.status, 0, ps.stderr);
   }
 
   if (sh1) {
-    const sh = run('sh', ['scripts/refresh.sh', '--out', shOut, '--no-bd-enrich']);
+    const sh = run('sh', [posixPath(resolve('scripts/refresh.sh')), '--out', shOut, '--no-bd-enrich'], { cwd: projectRoot });
     assert.equal(sh.status, 0, sh.stderr);
 
     const shText = await awaitableRead(shOut);
@@ -162,8 +170,8 @@ test('refresh scripts generate equivalent string-payload snapshots', async () =>
 
     assert.equal(shSnapshot.generated_at.length > 0, true);
     assert.equal(shSource.endsWith('/.beads/issues.jsonl'), true);
-    // live tracker export: the count grows with the project — assert non-empty, not a snapshot-in-time number
     assert.equal(shIssues.length > 0, true);
+    assert.deepEqual(shIssues, fixture);
     assert.match(shText, /\\u[0-9a-fA-F]{4}/);
     assert.doesNotMatch(shText, /\u0001/);
 
@@ -177,6 +185,7 @@ test('refresh scripts generate equivalent string-payload snapshots', async () =>
       assert.equal(psSource, shSource);
       assert.equal(psIssues.length > 0, true);
       assert.equal(psIssues.length, shIssues.length);
+      assert.deepEqual(psIssues, shIssues);
       assert.match(psText, /\\u[0-9a-fA-F]{4}/);
       assert.doesNotMatch(psText, /\u0001/);
     }
@@ -189,6 +198,7 @@ test('refresh scripts generate equivalent string-payload snapshots', async () =>
     assert.equal(psSnapshot.generated_at.length > 0, true);
     assert.equal(psSource.endsWith('/.beads/issues.jsonl'), true);
     assert.equal(psIssues.length > 0, true);
+    assert.deepEqual(psIssues, fixture);
     assert.match(psText, /\\u[0-9a-fA-F]{4}/);
     assert.doesNotMatch(psText, /\u0001/);
   }

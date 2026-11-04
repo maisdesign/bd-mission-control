@@ -16,18 +16,18 @@ Minimal example:
   "waves": {
     "2": {
       "title": "Wave 2",
-      "subtitle": "Runtime wiring"
+      "subtitle": "Observatory preparation"
     }
   },
   "beads": {
-    "bmc-4": {
-      "label": "Panel behaviors",
+    "demo-4": {
+      "label": "Star map controls",
       "phase": "runtime",
       "track": "UI"
     },
-    "bmc-10": {
+    "demo-10": {
       "flag": true,
-      "note": "Release pending final QA"
+      "note": "Opening night pending telescope checks"
     }
   }
 }
