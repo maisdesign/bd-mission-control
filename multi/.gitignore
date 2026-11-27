@@ -1,0 +1,4 @@
+# Machine-local: paths, exclusions, network address. Never commit.
+mission-control.config.json
+# Optional pinned copy of the panel.
+vendor/

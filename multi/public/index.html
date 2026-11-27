@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mission Control</title>
+<link rel="icon" type="image/png" href="data:image/png;base64,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">
+<style>
+  :root {
+    --bg: #040814; --bar: rgba(6, 12, 30, 0.92); --line: rgba(0, 240, 255, 0.15);
+    --accent: #00f0ff; --accent-rgb: 0, 240, 255; --amber: #ffb800; --green: #10b981;
+    --red: #ef4444; --blue: #60a5fa; --muted: #64748b; --text: #e2e8f0; --text-2: #94a3b8;
+    --card: rgba(6, 12, 30, 0.6);
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(circle at center, #0b1528 0%, #030712 100%) fixed, var(--bg);
+    color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: stretch; gap: 0; min-height: 48px;
+    background: var(--bar); border-bottom: 1px solid var(--line);
+    box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.08); position: relative; z-index: 2;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px; padding: 0 18px;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--accent); white-space: nowrap; border-right: 1px solid var(--line);
+    text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.5);
+  }
+  .brand svg { width: 18px; height: 18px; }
+  nav { display: flex; align-items: stretch; flex: 1; flex-wrap: wrap; min-width: 0; }
+  .tab {
+    all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    padding: 0 13px; min-height: 47px; border-right: 1px solid var(--line); white-space: nowrap;
+    font-size: 13px; color: var(--text-2); position: relative;
+  }
+  .tab:hover { color: var(--text); background: rgba(var(--accent-rgb), 0.04); }
+  .tab:focus-visible { outline: 1px solid var(--accent); outline-offset: -3px; }
+  .tab[aria-selected="true"] { color: var(--text); background: rgba(var(--accent-rgb), 0.08); }
+  .tab[aria-selected="true"]::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+    background: var(--accent); box-shadow: 0 0 10px var(--accent);
+  }
+  .tab .label { font-weight: 600; }
+  .tab .key { display: none; }
+  .badge { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 3px; background: rgba(var(--accent-rgb), 0.08); color: var(--text-2); }
+  .badge.wip { color: var(--amber); background: rgba(255, 184, 0, 0.1); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.busy { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.6s infinite; }
+  .dot.waiting { background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse 0.9s infinite; }
+  .dot.shell { background: var(--blue); }
+  .dot.idle { background: var(--muted); }
+  .dot.none { background: transparent; border: 1px dashed var(--muted); }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) { .dot { animation: none !important; } }
+  .filter { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-left: 1px solid var(--line); font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  .filter[hidden] { display: none; }
+  .filter select { max-width: 320px; background: #0b1528; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; font: 13px -apple-system, "Segoe UI", sans-serif; letter-spacing: 0; text-transform: none; }
+  .filter select:focus-visible { outline: 1px solid var(--accent); }
+  .meta { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-left: 1px solid var(--line); font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .meta .live { color: var(--green); }
+  .meta .stale { color: var(--red); }
+  main { flex: 1; position: relative; min-height: 0; }
+  .view { position: absolute; inset: 0; display: none; }
+  .view.active { display: block; }
+  iframe { width: 100%; height: 100%; border: 0; background: var(--bg); }
+  #overview { overflow: auto; padding: 24px 28px 40px; }
+  #overview h1 { font-family: var(--mono); font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-2); font-weight: 500; margin: 0 0 18px; }
+  .summary { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px; min-width: 140px; }
+  .stat b { display: block; font-family: var(--mono); font-size: 26px; font-weight: 600; }
+  .stat span { font-size: 12px; color: var(--text-2); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .card.attn { border-color: rgba(255, 184, 0, 0.55); box-shadow: 0 0 18px rgba(255, 184, 0, 0.12); }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .card h2 { margin: 0; font-size: 17px; }
+  .card .root { font-family: var(--mono); font-size: 11px; color: var(--muted); word-break: break-all; }
+  .open-btn { all: unset; cursor: pointer; font-family: var(--mono); font-size: 11px; color: var(--accent); border: 1px solid var(--line); padding: 4px 10px; border-radius: 4px; white-space: nowrap; }
+  .open-btn:hover { background: rgba(var(--accent-rgb), 0.1); }
+  .bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: rgba(148, 163, 184, 0.12); }
+  .bar i { display: block; height: 100%; }
+  .counts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-2); }
+  .counts b { font-family: var(--mono); color: var(--text); font-weight: 600; }
+  .sessions { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .sessions li { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+  .sessions .sname { font-weight: 600; }
+  .sessions .sstate { color: var(--text-2); }
+  .sessions .sinfo { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-left: auto; white-space: nowrap; }
+  .wip-list { margin: 0; padding: 0; list-style: none; font-size: 12px; color: var(--text-2); display: flex; flex-direction: column; gap: 4px; }
+  .wip-list code { font-family: var(--mono); color: var(--amber); margin-right: 6px; }
+  .section-title { font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); margin: 28px 0 12px; }
+  .switch { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 18px; font-size: 13px; color: var(--text-2); cursor: pointer; user-select: none; }
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .switch .track { width: 34px; height: 18px; border-radius: 9px; background: rgba(148, 163, 184, 0.25); position: relative; transition: background 0.15s; flex: none; }
+  .switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--text-2); transition: transform 0.15s, background 0.15s; }
+  .switch input:checked + .track { background: rgba(var(--accent-rgb), 0.35); }
+  .switch input:checked + .track::after { transform: translateX(16px); background: var(--accent); }
+  .switch input:focus-visible + .track { outline: 1px solid var(--accent); outline-offset: 2px; }
+  .switch .hint { color: var(--muted); }
+  .empty { color: var(--text-2); font-size: 14px; padding: 24px; border: 1px dashed var(--line); border-radius: 8px; }
+  .err { color: var(--red); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+    Mission Control
+  </div>
+  <nav id="tabs" role="tablist" aria-label="Progetti"></nav>
+  <label class="filter" id="epicBox" hidden>Epic
+    <select id="epicSel" title="Mostra tutto il progetto o un solo epic"></select>
+  </label>
+  <div class="meta"><span id="conn">…</span><span id="clock"></span></div>
+</header>
+<main id="views">
+  <section id="overview" class="view active" role="tabpanel"><div class="empty">Lettura delle sessioni e dei tracker bd…</div></section>
+</main>
+<script>
+(() => {
+  const POLL_MS = 5000;
+  const STATUS_LABEL = { busy: "al lavoro", waiting: "attende input", shell: "shell in corso", idle: "inattiva", unknown: "?" };
+  const STATUS_RANK = { waiting: 4, busy: 3, shell: 2, idle: 1, unknown: 0 };
+  const tabsEl = document.getElementById("tabs");
+  const viewsEl = document.getElementById("views");
+  const overviewEl = document.getElementById("overview");
+  const frames = new Map();
+  let state = null;
+  let active = "overview";
+  try { active = localStorage.getItem("mc-active") || "overview"; } catch {}
+
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const ago = (ms) => {
+    if (!ms) return "";
+    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    if (s < 60) return `${s}s fa`;
+    if (s < 3600) return `${Math.round(s / 60)} min fa`;
+    if (s < 86400) return `${Math.round(s / 3600)} h fa`;
+    return `${Math.round(s / 86400)} g fa`;
+  };
+  const waitText = (s) => s.status === "waiting" && s.waitingFor ? `attende: ${s.waitingFor}` : (STATUS_LABEL[s.status] || s.status);
+  const topStatus = (p) => p.sessions.reduce((best, s) => (STATUS_RANK[s.status] ?? 0) > (STATUS_RANK[best] ?? -1) ? s.status : best, p.sessions.length ? "unknown" : "none");
+
+  // Filtro per epic: scelta salvata per progetto; "" = tutto il progetto.
+  const epicBox = document.getElementById("epicBox");
+  const epicSel = document.getElementById("epicSel");
+  let epicSig = "";
+  function epicFor(slug) {
+    let id = "";
+    try { id = localStorage.getItem(`mc-epic-${slug}`) || ""; } catch {}
+    const p = state?.projects.find((x) => x.slug === slug);
+    return id && p?.epics?.some((e) => e.id === id) ? id : "";
+  }
+  function renderEpicSelect() {
+    const p = active !== "overview" ? state?.projects.find((x) => x.slug === active) : null;
+    const epics = p?.epics || [];
+    epicBox.hidden = !epics.length;
+    if (!epics.length) { epicSig = ""; return; }
+    const sig = active + "|" + epics.map((e) => `${e.id}:${e.status}:${e.open}:${e.in_progress}:${e.total}:${e.title}`).join("|");
+    if (sig !== epicSig) {
+      epicSig = sig;
+      const opt = (e) => `<option value="${esc(e.id)}">${esc(e.title || e.id)} (${e.open + e.in_progress} da fare / ${e.total})</option>`;
+      const openE = epics.filter((e) => e.status !== "closed");
+      const closedE = epics.filter((e) => e.status === "closed");
+      epicSel.innerHTML = `<option value="">Tutto il progetto</option>`
+        + (openE.length ? `<optgroup label="Epic aperti">${openE.map(opt).join("")}</optgroup>` : "")
+        + (closedE.length ? `<optgroup label="Epic chiusi">${closedE.map(opt).join("")}</optgroup>` : "");
+    }
+    epicSel.value = epicFor(active);
+  }
+  epicSel.addEventListener("change", () => {
+    try { localStorage.setItem(`mc-epic-${active}`, epicSel.value); } catch {}
+    select(active);
+  });
+
+  function select(slug) {
+    if (slug !== "overview" && !state?.projects.some((p) => p.slug === slug && p.hasBeads)) slug = "overview";
+    const changed = active !== slug;
+    active = slug;
+    try { localStorage.setItem("mc-active", slug); } catch {}
+    if (changed && state) return renderTabs();
+    if (slug !== "overview") {
+      const epic = epicFor(slug);
+      let sec = frames.get(slug);
+      if (!sec) {
+        sec = document.createElement("section");
+        sec.className = "view"; sec.setAttribute("role", "tabpanel");
+        const f = document.createElement("iframe");
+        f.title = `Pannello ${slug}`;
+        sec.appendChild(f);
+        viewsEl.appendChild(sec);
+        frames.set(slug, sec);
+      }
+      if (sec.dataset.epic !== epic) {
+        sec.dataset.epic = epic;
+        sec.firstChild.src = `/p/${encodeURIComponent(slug)}/${epic ? `e/${encodeURIComponent(epic)}/` : ""}orchestration.html`;
+      }
+    }
+    renderEpicSelect();
+    overviewEl.classList.toggle("active", slug === "overview");
+    for (const [s, sec] of frames) sec.classList.toggle("active", s === slug);
+    for (const t of tabsEl.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t.dataset.slug === slug));
+  }
+
+  function renderTabs() {
+    const items = [{ slug: "overview", label: "Panoramica", overview: true }, ...state.projects.filter((p) => p.hasBeads && (p.sessions.length || p.pinned || p.slug === active))];
+    tabsEl.innerHTML = items.map((p, i) => {
+      if (p.overview) {
+        const waiting = state.projects.filter((x) => topStatus(x) === "waiting").length;
+        return `<button class="tab" role="tab" data-slug="overview" title="Tutte le sessioni (Alt+0)"><span class="label">Panoramica</span>${waiting ? `<span class="badge wip">${waiting} in attesa</span>` : ""}<span class="key">0</span></button>`;
+      }
+      const st = topStatus(p);
+      const wip = p.counts?.in_progress || 0;
+      const open = p.counts?.open || 0;
+      const names = p.sessions.map((s) => `${s.name} — ${waitText(s)}`).join("\n") || "nessuna sessione aperta";
+      return `<button class="tab" role="tab" data-slug="${esc(p.slug)}" title="${esc(p.root)}\n${esc(names)}">
+        <span class="dot ${esc(st)}"></span><span class="label">${esc(p.label)}</span>
+        ${wip ? `<span class="badge wip" title="in corso">${wip}▸</span>` : ""}<span class="badge" title="aperti">${open}</span>
+        ${i < 10 ? `<span class="key">${i}</span>` : ""}</button>`;
+    }).join("");
+    for (const t of tabsEl.querySelectorAll(".tab")) t.addEventListener("click", () => select(t.dataset.slug));
+    const live = new Set(state.projects.filter((p) => p.hasBeads).map((p) => p.slug));
+    for (const [s, sec] of frames) if (!live.has(s)) { sec.remove(); frames.delete(s); }
+    select(active);
+  }
+
+  function counts(c) {
+    if (!c) return "";
+    const total = c.total || 1;
+    const seg = [["closed", "var(--green)"], ["in_progress", "var(--amber)"], ["blocked", "var(--red)"], ["open", "var(--accent)"], ["deferred", "var(--muted)"]];
+    return `<div class="bar" aria-hidden="true">${seg.map(([k, col]) => c[k] ? `<i style="width:${(c[k] / total) * 100}%;background:${col}"></i>` : "").join("")}</div>
+      <div class="counts"><span><b>${c.open}</b> aperti</span><span><b>${c.in_progress}</b> in corso</span><span><b>${c.blocked}</b> bloccati</span><span><b>${c.closed}</b> chiusi${c.closed ? ` · <b>${c.closedVerified}</b> verificati` : ""}</span>${c.deferred ? `<span><b>${c.deferred}</b> rimandati</span>` : ""}</div>`;
+  }
+
+  function card(p) {
+    const st = topStatus(p);
+    const sess = p.sessions.length
+      ? `<ul class="sessions">${p.sessions.map((s) => `<li title="pid ${esc(s.pid)} · ${esc(s.cwd)}"><span class="dot ${esc(s.status)}"></span><span class="sname">${esc(s.name)}</span><span class="sstate">${esc(waitText(s))}</span><span class="sinfo">${esc(s.profile)} · ${esc(ago(s.updatedAt))}</span></li>`).join("")}</ul>`
+      : (state.hideSessions ? "" : `<div class="counts">nessuna sessione aperta${p.pinned ? " (fissato)" : ""}</div>`);
+    const wip = p.counts?.active?.length
+      ? `<ul class="wip-list">${p.counts.active.map((a) => `<li><code>${esc(a.id)}</code>${esc(a.title)}${a.assignee ? ` <span style="color:var(--muted)">· ${esc(a.assignee)}</span>` : ""}</li>`).join("")}</ul>` : "";
+    return `<article class="card ${st === "waiting" ? "attn" : ""}">
+      <div class="card-head"><div><h2>${esc(p.label)}</h2><div class="root">${esc(p.root)}</div></div>
+      ${p.hasBeads ? `<button class="open-btn" data-open="${esc(p.slug)}">apri pannello →</button>` : ""}</div>
+      ${sess}${counts(p.counts)}${wip}
+      ${p.source && p.source !== "bd export" ? `<div class="counts err">fonte dati: ${esc(p.source)}</div>` : ""}
+    </article>`;
+  }
+
+  // Interruttore della Panoramica: tutti i progetti con bead del PC (default) oppure solo quelli con una sessione aperta.
+  let showAll = true;
+  try { showAll = localStorage.getItem("mc-show-all") !== "0"; } catch {}
+  function renderOverview() {
+    const allBeads = state.projects.filter((p) => p.hasBeads);
+    const rank = (p) => (p.sessions.length ? 0 : p.pinned ? 1 : 2);
+    const withBeads = allBeads.filter((p) => showAll || p.sessions.length).sort((a, b) => rank(a) - rank(b));
+    const hiddenCount = allBeads.length - withBeads.length;
+    const without = state.projects.filter((p) => !p.hasBeads);
+    const allSessions = state.projects.flatMap((p) => p.sessions);
+    const sum = (k) => withBeads.reduce((n, p) => n + (p.counts?.[k] || 0), 0);
+    const by = (s) => allSessions.filter((x) => x.status === s).length;
+    overviewEl.innerHTML = `
+      <h1>${state.hideSessions ? "Progetti" : `Sessioni Claude aperte su ${esc(state.host)}`}</h1>
+      <div class="summary">
+        ${state.hideSessions ? "" : `<div class="stat"><b>${allSessions.length}</b><span>sessioni vive</span></div>
+        <div class="stat"><b style="color:var(--amber)">${by("waiting")}</b><span>attendono input</span></div>
+        <div class="stat"><b style="color:var(--green)">${by("busy") + by("shell")}</b><span>al lavoro</span></div>`}
+        <div class="stat"><b>${withBeads.length}</b><span>progetti con bead</span></div>
+        <div class="stat"><b style="color:var(--amber)">${sum("in_progress")}</b><span>bead in corso</span></div>
+        <div class="stat"><b style="color:var(--accent)">${sum("open")}</b><span>bead aperti</span></div>
+      </div>
+      ${state.hideSessions ? "" : `<label class="switch"><input type="checkbox" id="showAll" ${showAll ? "checked" : ""}><span class="track" aria-hidden="true"></span>
+        Tutti i progetti con bead${showAll ? "" : ` <span class="hint">(${hiddenCount} senza sessione nascosti)</span>`}</label>`}
+      ${withBeads.length ? `<div class="grid">${withBeads.map(card).join("")}</div>` : `<div class="empty">Nessuna sessione aperta su un progetto con bead.</div>`}
+      ${without.length ? `<div class="section-title">Sessioni senza tracker bd</div><div class="grid">${without.map(card).join("")}</div>` : ""}`;
+    for (const b of overviewEl.querySelectorAll("[data-open]")) b.addEventListener("click", () => select(b.dataset.open));
+    overviewEl.querySelector("#showAll")?.addEventListener("change", (e) => {
+      showAll = e.target.checked;
+      try { localStorage.setItem("mc-show-all", showAll ? "1" : "0"); } catch {}
+      renderOverview();
+    });
+  }
+
+  let lastOk = 0;
+  async function poll() {
+    try {
+      const r = await fetch("/api/state", { cache: "no-store" });
+      if (!r.ok) throw new Error(r.status);
+      state = await r.json();
+      lastOk = Date.now();
+      renderTabs();
+      renderOverview();
+      const waiting = state.projects.filter((p) => topStatus(p) === "waiting").length;
+      document.title = waiting ? `(${waiting}) Mission Control` : "Mission Control";
+    } catch (e) { console.warn("poll fallito", e); }
+    updateConn();
+  }
+  function updateConn() {
+    const conn = document.getElementById("conn");
+    const fresh = Date.now() - lastOk < POLL_MS * 3;
+    conn.textContent = lastOk ? (fresh ? "● live" : "● server non raggiungibile") : "connessione…";
+    conn.className = fresh ? "live" : "stale";
+    document.getElementById("clock").textContent = new Date().toLocaleTimeString("it-IT");
+  }
+  document.addEventListener("keydown", (e) => {
+    if (!e.altKey || !/^[0-9]$/.test(e.key)) return;
+    const t = tabsEl.querySelectorAll(".tab")[Number(e.key)];
+    if (t) { e.preventDefault(); select(t.dataset.slug); }
+  });
+  poll();
+  setInterval(poll, POLL_MS);
+  setInterval(updateConn, 1000);
+})();
+</script>
+</body>
+</html>
