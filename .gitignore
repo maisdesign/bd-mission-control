@@ -7,3 +7,6 @@
 # Node / build
 node_modules/
 *.log
+
+# Local list for the brand check in test/theme-contract.test.mjs (private names, never commit)
+.forbidden-brands.local

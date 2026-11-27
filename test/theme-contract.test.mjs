@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, "..");
 
-test("Theme contract gates validation", async () => {
+test("Theme contract gates validation", async (t) => {
   const cssPath = path.join(rootDir, "src", "panel.css");
   const templatePath = path.join(rootDir, "src", "panel.template.html");
   const panelJsPath = path.join(rootDir, "src", "panel.js");
@@ -17,8 +17,15 @@ test("Theme contract gates validation", async () => {
   const panelJsContent = await readFile(panelJsPath, "utf8");
   const combined = cssContent + "\n" + templateContent;
 
-  // 1. Zero matches for prohibited project brands (case-insensitive)
-  const forbiddenBrands = ["BrandA", "BrandB"];
+  // 1. Zero matches for prohibited project brands (case-insensitive).
+  // The names are not written in this public repo: list them, one per line, in the Git-ignored file
+  // `.forbidden-brands.local` at the repo root, or comma-separated in BMC_FORBIDDEN_BRANDS.
+  // With neither, this part checks nothing and says so.
+  const localList = await readFile(path.join(rootDir, ".forbidden-brands.local"), "utf8").catch(() => "");
+  const forbiddenBrands = [...localList.split(/\r?\n/), ...(process.env.BMC_FORBIDDEN_BRANDS || "").split(",")]
+    .map((s) => s.trim())
+    .filter((s) => s && !s.startsWith("#"));
+  if (!forbiddenBrands.length) t.diagnostic("brand check not configured: no .forbidden-brands.local and no BMC_FORBIDDEN_BRANDS");
   for (const brand of forbiddenBrands) {
     const hasBrand = combined.toLowerCase().includes(brand.toLowerCase());
     assert.strictEqual(
