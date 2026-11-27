@@ -134,6 +134,33 @@
   let active = "overview";
   try { active = localStorage.getItem("mc-active") || "overview"; } catch {}
 
+  // Indirizzo condivisibile: #<slug> apre la scheda del progetto, #<slug>/e/<epic> anche l'epic.
+  // Senza ancora vale l'ultima scheda usata in questo browser. Un'ancora senza epic non tocca l'epic salvato.
+  function readHash() {
+    const m = /^#([^/]+)(?:\/e\/(.+))?$/.exec(location.hash);
+    if (!m) return null;
+    try { return { slug: decodeURIComponent(m[1]), epic: m[2] ? decodeURIComponent(m[2]) : "" }; } catch { return null; }
+  }
+  function applyHash() {
+    const h = readHash();
+    if (!h) return false;
+    if (h.epic) { try { localStorage.setItem(`mc-epic-${h.slug}`, h.epic); } catch {} }
+    active = h.slug;
+    return true;
+  }
+  function writeHash(slug, epic) {
+    const want = slug === "overview" ? "" : `#${encodeURIComponent(slug)}${epic ? `/e/${encodeURIComponent(epic)}` : ""}`;
+    if (location.hash === want) return;
+    try { history.replaceState(null, "", want || location.pathname + location.search); } catch {}
+  }
+  applyHash();
+  window.addEventListener("hashchange", () => {
+    const h = readHash();
+    if (h?.epic) { try { localStorage.setItem(`mc-epic-${h.slug}`, h.epic); } catch {} }
+    const slug = h ? h.slug : "overview";
+    if (state) select(slug); else active = slug;
+  });
+
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const ago = (ms) => {
     if (!ms) return "";
@@ -202,6 +229,7 @@
       }
     }
     renderEpicSelect();
+    if (state) writeHash(slug, slug === "overview" ? "" : epicFor(slug));
     overviewEl.classList.toggle("active", slug === "overview");
     for (const [s, sec] of frames) sec.classList.toggle("active", s === slug);
     for (const t of tabsEl.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t.dataset.slug === slug));
