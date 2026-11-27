@@ -52,6 +52,9 @@ function loadConfig() {
     scanCacheMs: 60000,
     // Quanti `bd export` al massimo insieme (all'avvio i progetti scoperti sono tanti).
     maxParallelExports: 3,
+    // true = pannelli in modalita' leggera di default (senza animazioni, sfocature e ombre); ?full=1 la scavalca.
+    // L'interruttore "animazioni" nella pagina vale per il singolo browser.
+    lite: false,
   };
   const file = path.join(HERE, "mission-control.config.json");
   if (!fs.existsSync(file)) return defaults;
@@ -411,8 +414,22 @@ function send(res, code, body, type = "text/plain; charset=utf-8") {
   res.end(body);
 }
 
-function panelHtml() {
-  for (const p of CFG.panelPaths) if (fs.existsSync(p)) return fs.readFileSync(p);
+// Modalita' leggera (opzionale): spegne animazioni continue, sfocature e ombre del pannello, che da sole
+// pesano centinaia di MB tra processo GPU e renderer. Il pannello originale non viene modificato: il CSS
+// viene aggiunto solo alla risposta. La schermata di avvio del pannello si chiude su "animationend",
+// quindi senza animazioni va nascosta qui.
+const LITE_CSS = `<style id="mc-lite">
+*,*::before,*::after{animation:none!important;transition:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;filter:none!important;box-shadow:none!important;text-shadow:none!important;will-change:auto!important}
+#boot-overlay,.boot-overlay{display:none!important}
+</style>`;
+
+function panelHtml(lite = false) {
+  for (const p of CFG.panelPaths) {
+    if (!fs.existsSync(p)) continue;
+    if (!lite) return fs.readFileSync(p);
+    const html = fs.readFileSync(p, "utf8");
+    return html.includes("</head>") ? html.replace("</head>", `${LITE_CSS}\n</head>`) : LITE_CSS + html;
+  }
   return null;
 }
 
@@ -445,7 +462,10 @@ const handler = async (req, res) => {
       if (em) { epicId = em[1]; rest = em[2]; }
       const file = rest || "orchestration.html";
       switch (file) {
-        case "orchestration.html": { const html = panelHtml(); return html ? send(res, 200, html, "text/html; charset=utf-8") : send(res, 500, "pannello bd-mission-control non trovato: esegui update-panel.ps1"); }
+        case "orchestration.html": {
+          // Grafica completa di default; ?lite=1 (interruttore nella pagina) o "lite": true in config la alleggeriscono.
+          const lite = url.searchParams.get("lite") === "1" || (CFG.lite === true && url.searchParams.get("full") !== "1");
+          const html = panelHtml(lite); return html ? send(res, 200, html, "text/html; charset=utf-8") : send(res, 500, "pannello bd-mission-control non trovato: esegui update-panel.ps1"); }
         case "orchestration.config.js": {
           let epicTitle = "";
           if (epicId) {

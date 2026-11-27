@@ -64,6 +64,9 @@
   .meta { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-left: 1px solid var(--line); font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
   .meta .live { color: var(--green); }
   .meta .stale { color: var(--red); }
+  .meta button { font: inherit; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+  .meta button:hover { color: var(--text); }
+  .meta button[aria-pressed="true"] { color: var(--green); border-color: currentColor; }
   main { flex: 1; position: relative; min-height: 0; }
   .view { position: absolute; inset: 0; display: none; }
   .view.active { display: block; }
@@ -116,7 +119,7 @@
   <label class="filter" id="epicBox" hidden>Epic
     <select id="epicSel" title="Mostra tutto il progetto o un solo epic"></select>
   </label>
-  <div class="meta"><span id="conn">…</span><span id="clock"></span></div>
+  <div class="meta"><button id="fx" type="button" title="Animazioni, sfocature e ombre dei pannelli. Spente consumano meno RAM.">animazioni</button><span id="conn">…</span><span id="clock"></span></div>
 </header>
 <main id="views">
   <section id="overview" class="view active" role="tabpanel"><div class="empty">Lettura delle sessioni e dei tracker bd…</div></section>
@@ -133,6 +136,22 @@
   let state = null;
   let active = "overview";
   try { active = localStorage.getItem("mc-active") || "overview"; } catch {}
+
+  // Animazioni dei pannelli: accese di default; l'interruttore in alto passa alla modalita' leggera
+  // (meno RAM). La scelta vale per questo browser.
+  let fxOn = true;
+  try { fxOn = localStorage.getItem("mc-fx") !== "off"; } catch {}
+  const fxBtn = document.getElementById("fx");
+  const fxQuery = () => (fxOn ? "?full=1" : "?lite=1");
+  const renderFx = () => { fxBtn.textContent = fxOn ? "animazioni: on" : "animazioni: off"; fxBtn.setAttribute("aria-pressed", String(fxOn)); };
+  renderFx();
+  fxBtn.addEventListener("click", () => {
+    fxOn = !fxOn;
+    try { localStorage.setItem("mc-fx", fxOn ? "on" : "off"); } catch {}
+    renderFx();
+    for (const [, sec] of frames) delete sec.dataset.src; // forza il ricaricamento del pannello aperto
+    select(active);
+  });
 
   // Indirizzo condivisibile: #<slug> apre la scheda del progetto, #<slug>/e/<epic> anche l'epic.
   // Senza ancora vale l'ultima scheda usata in questo browser. Un'ancora senza epic non tocca l'epic salvato.
@@ -211,6 +230,8 @@
     active = slug;
     try { localStorage.setItem("mc-active", slug); } catch {}
     if (changed && state) return renderTabs();
+    // Un solo pannello in memoria: quelli delle schede non visibili vengono scaricati (risparmio RAM).
+    for (const [s, sec] of frames) if (s !== slug) { sec.firstChild?.removeAttribute("src"); sec.remove(); frames.delete(s); }
     if (slug !== "overview") {
       const epic = epicFor(slug);
       let sec = frames.get(slug);
@@ -223,9 +244,10 @@
         viewsEl.appendChild(sec);
         frames.set(slug, sec);
       }
-      if (sec.dataset.epic !== epic) {
-        sec.dataset.epic = epic;
-        sec.firstChild.src = `/p/${encodeURIComponent(slug)}/${epic ? `e/${encodeURIComponent(epic)}/` : ""}orchestration.html`;
+      const src = `/p/${encodeURIComponent(slug)}/${epic ? `e/${encodeURIComponent(epic)}/` : ""}orchestration.html${fxQuery()}`;
+      if (sec.dataset.src !== src) {
+        sec.dataset.src = src;
+        sec.firstChild.src = src;
       }
     }
     renderEpicSelect();
